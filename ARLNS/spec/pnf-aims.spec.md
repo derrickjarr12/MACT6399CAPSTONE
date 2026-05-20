@@ -9,6 +9,21 @@ This distinction matters:
 - PNF-AIMS may carry section-level song context.
 - ARLNS carries singer delivery instructions inside the lyric body.
 
+## Current Project Stack
+
+The current PNF-AIMS workflow and environment uses the following tools and platforms:
+
+- Suno
+- Mureka
+- ElevenLabs
+- TuneCore (analytics)
+- GitHub
+- ChatGPT
+- Logic Pro X
+- VS Code
+- React + Vite for the GUI (HTML/CSS)
+- MacBook Pro hardware
+
 ## Two-Layer Model
 
 ### 1. Song-Body Metadata Layer

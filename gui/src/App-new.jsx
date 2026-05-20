@@ -233,6 +233,11 @@ const INITIAL_SETTINGS = {
 };
 
 export default function App() {
+  const [compareOpen, setCompareOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [generator, setGenerator] = useState("Suno");
+  const [vocalDetailLevel, setVocalDetailLevel] = useState("Balanced");
+  const [harmonyStyle, setHarmonyStyle] = useState("Soft Layered");
   const [sessionTitle, setSessionTitle] = useState("Song Idea 1");
   const [navTab, setNavTab] = useState("PERFORMANCE");
   const [settings, setSettings] = useState(INITIAL_SETTINGS);
@@ -255,8 +260,6 @@ export default function App() {
   );
   const [beforeAudio, setBeforeAudio] = useState("");
   const [afterAudio, setAfterAudio] = useState("");
-  const [showBeforeDetails, setShowBeforeDetails] = useState(false);
-  const [showAfterDetails, setShowAfterDetails] = useState(false);
   const [savedSessions, setSavedSessions] = useState([]);
   const [selectedSessionIndex, setSelectedSessionIndex] = useState("-1");
   const [analysisData] = useState({
@@ -377,12 +380,15 @@ export default function App() {
   const generatedPrompt = useMemo(() => buildPrompt(currentSettings, context), [currentSettings, tempo, timeSignature, emotionPreset, vocalPreset]);
   const generatedNotation = useMemo(() => buildNotation(currentSettings, context), [currentSettings, tempo, timeSignature, emotionPreset, vocalPreset]);
   const originalNotation = useMemo(() => buildNotation(originalSettings, context), [originalSettings, tempo, timeSignature, emotionPreset, vocalPreset]);
+  const notationWithLocalSettings = useMemo(() => {
+    return [`GENERATOR:${generator.toUpperCase()}`, generatedNotation].join("\n");
+  }, [generator, generatedNotation]);
 
   const buildSessionPayload = () => ({
     title: sessionTitle || "Untitled Session",
     originalPrompt,
     generatedPrompt,
-    notation: generatedNotation,
+    notation: notationWithLocalSettings,
     settings: {
       tempo,
       timeSignature,
@@ -443,7 +449,10 @@ export default function App() {
   };
 
   const handleDownloadNotation = () => {
-    downloadTextFile(`${(sessionTitle || "song-idea").replace(/\s+/g, "-").toLowerCase()}-notation.txt`, generatedNotation);
+    downloadTextFile(
+      `${(sessionTitle || "song-idea").replace(/\s+/g, "-").toLowerCase()}-notation.txt`,
+      notationWithLocalSettings
+    );
     setSavedState("NOTATION DOWNLOADED");
   };
 
@@ -669,126 +678,150 @@ export default function App() {
             </div>
           </div>
         </div>
+      </main>
 
-        <section className="project-proof" aria-label="Before and After Comparison">
-          <div className="project-proof-header">
-            <h3>BEFORE / AFTER MUSIC COMPARISON</h3>
-            <label className="session-title-input" htmlFor="session-title">
-              <span>SESSION TITLE</span>
-              <input
-                id="session-title"
-                type="text"
-                value={sessionTitle}
-                onChange={(e) => setSessionTitle(e.target.value)}
-              />
+      <div className="floating-action-buttons">
+        <button
+          className="floating-action-btn"
+          onClick={() => {
+            setCompareOpen(true);
+            setSettingsOpen(false);
+          }}
+        >
+          ⇄ Compare
+        </button>
+
+        <button
+          className="floating-action-btn"
+          onClick={() => {
+            setSettingsOpen(true);
+            setCompareOpen(false);
+          }}
+        >
+          ⚙ Settings
+        </button>
+      </div>
+
+      {compareOpen && (
+        <div className="panel-overlay" onClick={() => setCompareOpen(false)}>
+          <div className="bottom-panel" onClick={(e) => e.stopPropagation()}>
+            <div className="panel-header">
+              <h2>Before / After Comparison</h2>
+              <button onClick={() => setCompareOpen(false)}>Close</button>
+            </div>
+
+            <label>
+              Session Title
+              <input type="text" value={sessionTitle} onChange={(e) => setSessionTitle(e.target.value)} placeholder="Song Idea 1" />
+            </label>
+
+            <div className="compare-grid">
+              <div className="compare-card">
+                <h3>Before</h3>
+
+                <label>
+                  Original Audio / Song URL
+                  <input type="text" value={beforeAudio} onChange={(e) => setBeforeAudio(e.target.value)} placeholder="https://..." />
+                </label>
+
+                <label>
+                  Original Prompt
+                  <textarea value={originalPrompt} onChange={(e) => setOriginalPrompt(e.target.value)} placeholder="Original idea prompt..." />
+                </label>
+
+                <div className="profile-summary">
+                  <h4>Original Performance Profile</h4>
+                  <p>Warm, soulful, intimate, restrained, emotional.</p>
+                </div>
+              </div>
+
+              <div className="compare-card">
+                <h3>After</h3>
+
+                <label>
+                  New Audio / Song URL
+                  <input type="text" value={afterAudio} onChange={(e) => setAfterAudio(e.target.value)} placeholder="https://..." />
+                </label>
+
+                <label>
+                  Generated Prompt
+                  <textarea value={generatedPrompt} readOnly placeholder="GUI-generated prompt..." />
+                </label>
+
+                <div className="profile-summary">
+                  <h4>New Performance Profile</h4>
+                  <p>More intense, layered, vulnerable, wide, expressive.</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="panel-actions">
+              <button onClick={handleCopyPrompt}>Copy Prompt</button>
+              <button onClick={handleDownloadNotation}>Download Notation</button>
+              <button onClick={handleSaveSession}>Save Session</button>
+              <button onClick={handleLoadSession}>Load Session</button>
+            </div>
+
+            <label>
+              Saved Sessions
+              <select value={selectedSessionIndex} onChange={(e) => setSelectedSessionIndex(e.target.value)}>
+                <option value="-1">Select saved session</option>
+                {savedSessions.map((session, index) => (
+                  <option key={`${session.savedAt || "session"}-${index}`} value={String(index)}>
+                    {session.title || `Session ${index + 1}`}
+                  </option>
+                ))}
+              </select>
             </label>
           </div>
+        </div>
+      )}
 
-          <div className="compare-grid">
-            <article className="compare-panel before-panel">
-              <div className="panel-top">
-                <h4>BEFORE</h4>
-                <button
-                  className="settings-gear"
-                  onClick={() => setShowBeforeDetails(prev => !prev)}
-                  aria-expanded={showBeforeDetails}
-                >
-                  {showBeforeDetails ? "Close" : "Settings"}
-                </button>
-              </div>
-              <div className="quick-summary">Original draft and baseline performance reference.</div>
+      {settingsOpen && (
+        <div className="panel-overlay" onClick={() => setSettingsOpen(false)}>
+          <div className="bottom-panel" onClick={(e) => e.stopPropagation()}>
+            <div className="panel-header">
+              <h2>Settings</h2>
+              <button onClick={() => setSettingsOpen(false)}>Close</button>
+            </div>
+
+            <div className="settings-section">
+              <h3>Performance Engine</h3>
+
               <label>
-                Original Audio / Song URL
-                <input
-                  type="url"
-                  value={beforeAudio}
-                  onChange={(e) => setBeforeAudio(e.target.value)}
-                  placeholder="https://..."
-                />
+                Generator
+                <select value={generator} onChange={(e) => setGenerator(e.target.value)}>
+                  <option>Suno</option>
+                  <option>Mureka</option>
+                </select>
               </label>
-              <audio controls src={beforeAudio || undefined} className="audio-preview" />
 
-              {showBeforeDetails && (
-                <div className="secret-window">
-                  <label>
-                    Original Prompt
-                    <textarea
-                      value={originalPrompt}
-                      onChange={(e) => setOriginalPrompt(e.target.value)}
-                      rows={4}
-                    />
-                  </label>
-                  <div className="compare-block">
-                    <div className="compare-subtitle">Original Settings</div>
-                    <pre>{JSON.stringify(originalSettings, null, 2)}</pre>
-                  </div>
-                  <div className="compare-block">
-                    <div className="compare-subtitle">Original Notation</div>
-                    <pre>{originalNotation}</pre>
-                  </div>
-                </div>
-              )}
-            </article>
-
-            <article className="compare-panel after-panel">
-              <div className="panel-top">
-                <h4>AFTER</h4>
-                <button
-                  className="settings-gear"
-                  onClick={() => setShowAfterDetails(prev => !prev)}
-                  aria-expanded={showAfterDetails}
-                >
-                  {showAfterDetails ? "Close" : "Settings"}
-                </button>
-              </div>
-              <div className="quick-summary">GUI-generated prompt and notation for the new render.</div>
               <label>
-                New Audio / Song URL
-                <input
-                  type="url"
-                  value={afterAudio}
-                  onChange={(e) => setAfterAudio(e.target.value)}
-                  placeholder="https://..."
-                />
+                Vocal Detail Level
+                <select value={vocalDetailLevel} onChange={(e) => setVocalDetailLevel(e.target.value)}>
+                  <option>Simple</option>
+                  <option>Balanced</option>
+                  <option>Advanced</option>
+                </select>
               </label>
-              <audio controls src={afterAudio || undefined} className="audio-preview" />
 
-              {showAfterDetails && (
-                <div className="secret-window">
-                  <div className="compare-block">
-                    <div className="compare-subtitle">New GUI-Generated Prompt</div>
-                    <pre>{generatedPrompt}</pre>
-                  </div>
-                  <div className="compare-block">
-                    <div className="compare-subtitle">New Notation Settings</div>
-                    <pre>{generatedNotation}</pre>
-                  </div>
-                </div>
-              )}
-            </article>
-          </div>
+              <label>
+                Harmony Style
+                <select value={harmonyStyle} onChange={(e) => setHarmonyStyle(e.target.value)}>
+                  <option>Soft Layered</option>
+                  <option>Gospel Inspired</option>
+                  <option>Wide R&amp;B Stacks</option>
+                </select>
+              </label>
+            </div>
 
-          <div className="session-actions">
-            <button className="save-btn" onClick={handleCopyPrompt}>Copy Prompt</button>
-            <button className="save-btn" onClick={handleDownloadNotation}>Download Notation .txt</button>
-            <button className="save-btn" onClick={handleExportSessionJson}>Save Session .json</button>
-            <button className="save-btn" onClick={handleSaveSession}>Save Session</button>
-            <select
-              className="session-select"
-              value={selectedSessionIndex}
-              onChange={(e) => setSelectedSessionIndex(e.target.value)}
-            >
-              <option value="-1">Select saved session</option>
-              {savedSessions.map((session, index) => (
-                <option key={`${session.savedAt || "session"}-${index}`} value={String(index)}>
-                  {session.title || `Session ${index + 1}`}
-                </option>
-              ))}
-            </select>
-            <button className="save-btn" onClick={handleLoadSession}>Load Session</button>
+            <div className="profile-summary">
+              <h4>Notation Engine</h4>
+              <p>Hidden under the hood. Used to shape performance, phrasing, harmony, and emotional delivery.</p>
+            </div>
           </div>
-        </section>
-      </main>
+        </div>
+      )}
 
       {/* Bottom A/B Section */}
       <footer className="ab-section">

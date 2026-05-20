@@ -313,7 +313,29 @@ function HolographicGlobe({ drive = 0.5, bass = 0.5, treble = 0.5, distortion = 
     directionalLight.position.set(2.5, 2, 4);
     scene.add(directionalLight);
 
-    const clock = new THREE.Clock();
+    const timer = typeof THREE.Timer === "function" ? new THREE.Timer() : null;
+    const fallbackStart = performance.now();
+
+    if (timer && typeof timer.start === "function") {
+      timer.start();
+    }
+
+    function getElapsedSeconds() {
+      if (timer) {
+        if (typeof timer.update === "function") {
+          timer.update();
+        }
+        if (typeof timer.getElapsed === "function") {
+          return timer.getElapsed();
+        }
+        if (typeof timer.getElapsedTime === "function") {
+          return timer.getElapsedTime();
+        }
+      }
+
+      return (performance.now() - fallbackStart) / 1000;
+    }
+
     let frameId = 0;
 
     function resize() {
@@ -326,7 +348,7 @@ function HolographicGlobe({ drive = 0.5, bass = 0.5, treble = 0.5, distortion = 
 
     function animate() {
       frameId = window.requestAnimationFrame(animate);
-      const elapsed = clock.getElapsedTime();
+      const elapsed = getElapsedSeconds();
       const currentDrive = driveRef.current;
       const currentBass = bassRef.current;
       const currentTreble = trebleRef.current;

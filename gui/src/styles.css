@@ -45,7 +45,6 @@ body {
 .mockup-mode .ambient-grid {
   display: none !important;
 }
-}
 
 body::before,
 body::after {
