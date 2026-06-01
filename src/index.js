@@ -1,5 +1,20 @@
+
 // index.js
 // Public API barrel for PNF-AIMS v1 pipeline.
+
+// --- Express server setup ---
+const express = require('express');
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+app.get('/', (req, res) => {
+  res.send('Hello from your Express server!');
+});
+
+app.listen(PORT, () => {
+  console.log(`Server running at http://localhost:${PORT}`);
+});
+
 
 const { tokenize } = require("./tokenizer_v1");
 const { validateTokens, attachPemToWords } = require("./validator");

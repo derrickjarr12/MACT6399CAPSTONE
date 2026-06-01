@@ -1,22 +1,27 @@
 import './styles-match.css';
-import React, { useEffect, useMemo, useState } from "react";
-import HolographicGlobe from "./HolographicGlobe";
+import React, { useEffect, useMemo, useRef, useState, Suspense, lazy } from "react";
 import ThreeGearDial from "./ThreeGearDial";
+import GyroscopicDial, { AMBER } from "./GyroscopicDial";
+const HolographicGlobe = lazy(() => import("./HolographicGlobe"));
 
-function normalizeDialAngle(degrees) {
-  let normalized = degrees;
-  while (normalized < -180) normalized += 360;
-  while (normalized > 180) normalized -= 360;
-  return normalized;
+function CornerDial({ value, onChange, color, label, style }) {
+  // color: 'blue' | 'yellow' | 'orange'
+  const accent = color === 'blue' ? '#4fdcff' : color === 'yellow' ? '#ffe066' : '#ffb347';
+  return (
+    <div className="corner-dial" style={style}>
+      <ThreeGearDial
+        value={value}
+        variant="vocal"
+        onChange={onChange}
+      />
+      <span className="corner-dial-label" style={{ color: accent }}>{label}</span>
+    </div>
+  );
 }
-
 function angleToDialValue(degrees) {
-  const start = -135;
-  const sweep = 270;
-  const normalized = normalizeDialAngle(degrees);
-  const offset = normalized < start ? normalized + 360 - start : normalized - start;
-  const progress = Math.max(0, Math.min(1, offset / sweep));
-  return Math.round(progress * 100);
+  let normalized = degrees % 360;
+  if (normalized < 0) normalized += 360;
+  return Math.max(0, Math.min(100, (normalized / 360) * 100));
 }
 
 function clampPercent(value) {
@@ -27,6 +32,21 @@ function rangeLabel(value, low, mid, high) {
   if (value <= 33) return low;
   if (value <= 66) return mid;
   return high;
+}
+
+function weightedParentScore(mainValue, modifierValues) {
+  const safeMain = Number(mainValue) || 0;
+  const safeModifiers = modifierValues.map((value) => Number(value) || 0);
+  const modifierAverage = safeModifiers.length
+    ? safeModifiers.reduce((sum, value) => sum + value, 0) / safeModifiers.length
+    : 0;
+  return clampPercent(safeMain * 0.7 + modifierAverage * 0.3);
+}
+
+function sciFiBarColor(value) {
+  const clamped = clampPercent(value);
+  const hue = 195 - (clamped / 100) * 165;
+  return `hsl(${hue} 96% 56%)`;
 }
 
 function buildNotation(settings, context) {
@@ -80,13 +100,14 @@ function downloadTextFile(filename, content, mimeType = "text/plain") {
 function MiniDial({ value, label, variant = "emotion", onChange }) {
   const isVocal = variant === "vocal";
   const currentValue = value || 0;
-
-  const handleManualInput = (nextRawValue) => {
-    if (nextRawValue === "") return;
-    const parsed = Number(nextRawValue);
-    if (Number.isNaN(parsed)) return;
-    onChange(clampPercent(parsed));
-  };
+  const activePointerIdRef = useRef(null);
+  const levelRingRadius = 32;
+  const levelRingCircumference = 2 * Math.PI * levelRingRadius;
+  const levelStrokeOffset = levelRingCircumference * (1 - currentValue / 100);
+  const levelColor = isVocal
+    ? `hsl(192 96% ${36 + currentValue * 0.34}%)`
+    : `hsl(${35 - currentValue * 0.22} 95% ${38 + currentValue * 0.3}%)`;
+  const levelFillOpacity = 0.14 + currentValue * 0.0046;
 
   const updateFromPointer = (event) => {
     const svg = event.currentTarget;
@@ -99,12 +120,18 @@ function MiniDial({ value, label, variant = "emotion", onChange }) {
 
   const handlePointerDown = (event) => {
     updateFromPointer(event);
+    activePointerIdRef.current = event.pointerId;
     event.currentTarget.setPointerCapture(event.pointerId);
   };
 
   const handlePointerMove = (event) => {
-    if ((event.buttons & 1) !== 1) return;
+    if (activePointerIdRef.current !== event.pointerId) return;
     updateFromPointer(event);
+  };
+
+  const handlePointerUp = (event) => {
+    if (activePointerIdRef.current !== event.pointerId) return;
+    activePointerIdRef.current = null;
   };
 
   const handleKeyDown = (event) => {
@@ -142,10 +169,37 @@ function MiniDial({ value, label, variant = "emotion", onChange }) {
         aria-valuenow={currentValue}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerUp}
         onKeyDown={handleKeyDown}
       >
         <circle cx="50" cy="50" r="40" className={isVocal ? "sub-dial-bg vocal" : "sub-dial-bg"} />
+        <circle
+          cx="50"
+          cy="50"
+          r="26"
+          className={isVocal ? "sub-level-core vocal" : "sub-level-core"}
+          style={{ fill: levelColor, opacity: levelFillOpacity }}
+        />
         <circle cx="50" cy="50" r="35" className={isVocal ? "sub-dial-ring vocal" : "sub-dial-ring"} />
+        <circle
+          cx="50"
+          cy="50"
+          r={levelRingRadius}
+          className="sub-level-track"
+        />
+        <circle
+          cx="50"
+          cy="50"
+          r={levelRingRadius}
+          className="sub-level-progress"
+          style={{
+            stroke: levelColor,
+            strokeDasharray: levelRingCircumference,
+            strokeDashoffset: levelStrokeOffset
+          }}
+          transform="rotate(-90 50 50)"
+        />
         {Array.from({ length: 16 }).map((_, i) => {
           const angle = (i / 16) * 360 - 90;
           const x1 = 50 + 20 * Math.cos((angle * Math.PI) / 180);
@@ -154,28 +208,20 @@ function MiniDial({ value, label, variant = "emotion", onChange }) {
           const y2 = 50 + 31 * Math.sin((angle * Math.PI) / 180);
           return <line key={`${label}-tooth-${i}`} x1={x1} y1={y1} x2={x2} y2={y2} className={isVocal ? "mini-gear-tooth vocal" : "mini-gear-tooth"} />;
         })}
-        <g transform={`rotate(${currentValue * 2.7 - 135} 50 50)`}>
+        <g transform={`rotate(${currentValue * 3.6} 50 50)`}>
           <line x1="50" y1="15" x2="50" y2="25" className={isVocal ? "sub-pointer vocal" : "sub-pointer"} strokeWidth="2" />
         </g>
         <circle cx="50" cy="50" r="12" className={isVocal ? "sub-center vocal" : "sub-center"} />
+        <text
+          x="50"
+          y="54"
+          textAnchor="middle"
+          className="sub-level-value"
+          style={{ fill: levelColor }}
+        >
+          {Math.round(currentValue)}
+        </text>
       </svg>
-      <input
-        type="range"
-        min="0"
-        max="100"
-        value={currentValue}
-        onChange={(e) => onChange(Number(e.target.value))}
-        className="sub-slider"
-      />
-      <input
-        type="number"
-        min="0"
-        max="100"
-        value={currentValue}
-        onChange={(e) => handleManualInput(e.target.value)}
-        className="sub-manual-input"
-        aria-label={`${label} value`}
-      />
       <label>{label}</label>
     </div>
   );
@@ -206,10 +252,14 @@ const SUB_DIAL_PARAMS = {
     { key: "release", label: "RELEASE" }
   ],
   vocal: [
+    { key: "texture", label: "TEXTURE" },
+    { key: "performanceState", label: "PERFORMANCE STATE" },
     { key: "breath", label: "BREATH" },
     { key: "rasp", label: "RASP" },
     { key: "runs", label: "RUNS" },
-    { key: "timing", label: "TIMING" }
+    { key: "timing", label: "TIMING" },
+    { key: "warmth", label: "WARMTH" },
+    { key: "release", label: "RELEASE" }
   ]
 };
 
@@ -262,13 +312,58 @@ export default function App() {
   const [afterAudio, setAfterAudio] = useState("");
   const [savedSessions, setSavedSessions] = useState([]);
   const [selectedSessionIndex, setSelectedSessionIndex] = useState("-1");
-  const [analysisData] = useState({
-    emotion: 68,
-    vocal: 55,
+  const [coreDials, setCoreDials] = useState({
     harmony: 74,
     rhythm: 63,
     dynamics: 71
   });
+  const currentSettings = settings;
+
+  const handleCoreDialChange = (key, value) => {
+    setCoreDials(prev => ({
+      ...prev,
+      [key]: Number(value)
+    }));
+  };
+
+  const analysisData = useMemo(() => ({
+    emotion: weightedParentScore(currentSettings.emotion.intensity, [
+      currentSettings.emotion.warmth,
+      currentSettings.emotion.tension,
+      currentSettings.emotion.release
+    ]),
+    vocal: weightedParentScore(currentSettings.vocal.texture, [
+      currentSettings.vocal.rasp,
+      currentSettings.vocal.warmth,
+      currentSettings.vocal.breath
+    ]),
+    harmony: clampPercent(coreDials.harmony),
+    rhythm: clampPercent(coreDials.rhythm),
+    dynamics: clampPercent(coreDials.dynamics)
+  }), [
+    currentSettings.emotion.intensity,
+    currentSettings.emotion.warmth,
+    currentSettings.emotion.tension,
+    currentSettings.emotion.release,
+    currentSettings.vocal.texture,
+    currentSettings.vocal.rasp,
+    currentSettings.vocal.warmth,
+    currentSettings.vocal.breath,
+    coreDials.harmony,
+    coreDials.rhythm,
+    coreDials.dynamics
+  ]);
+
+  const analysisRows = useMemo(() => [
+    { key: "emotion", label: "EMOTION", value: analysisData.emotion },
+    { key: "vocal", label: "VOCAL DELIVERY", value: analysisData.vocal },
+    { key: "harmony", label: "HARMONY", value: analysisData.harmony },
+    { key: "rhythm", label: "RHYTHM", value: analysisData.rhythm },
+    { key: "dynamics", label: "DYNAMICS", value: analysisData.dynamics }
+  ].map((row) => ({
+    ...row,
+    color: sciFiBarColor(row.value)
+  })), [analysisData]);
 
   useEffect(() => {
     setSettings(activeVersion === "A" ? versionA : versionB);
@@ -290,8 +385,6 @@ export default function App() {
   useEffect(() => {
     window.localStorage.setItem("pnf-aims-sessions", JSON.stringify(savedSessions));
   }, [savedSessions]);
-
-  const currentSettings = settings;
 
   const handleEmotionChange = (key, value) => {
     setSettings(prev => ({
@@ -479,7 +572,12 @@ export default function App() {
     });
   }, [waveformSeed]);
   const currentOutput = `${emotionPreset} • ${vocalPreset}`;
-  const processingWidth = `${Math.round((emotionDial + vocalDial) / 2)}%`;
+  const processingPercent = Math.round(
+    Object.values(analysisData).reduce((sum, value) => sum + value, 0) /
+      Object.values(analysisData).length
+  );
+  const processingWidth = `${processingPercent}%`;
+  const processingColor = sciFiBarColor(processingPercent);
   const bassDrive = Math.min(
     1,
     (emotionDial * 0.35 + currentSettings.vocal.warmth * 0.4 + volume * 0.25) / 100
@@ -544,6 +642,33 @@ export default function App() {
 
       {/* Main Content */}
       <main className="content-area">
+        {navTab === "VISUALIZE" ? (
+          <div className="orb-module-view">
+            <div className="orb-module-shell">
+              <div className="orb-module-header">
+                <div>
+                  <h2>HOLOGRAPHIC ORB MODULE</h2>
+                  <p>Dedicated visualizer view with live performance drive</p>
+                </div>
+                <button className="orb-module-back-btn" onClick={() => setNavTab("PERFORMANCE")}>BACK TO PERFORMANCE</button>
+              </div>
+              <div className="orb-module-stage">
+                <Suspense fallback={<div>Loading Orb...</div>}>
+                  <HolographicGlobe
+                    drive={emotionDial / 100}
+                    bass={bassDrive}
+                    treble={trebleDrive}
+                    distortion={distortionDrive}
+                  />
+                </Suspense>
+              </div>
+              <div className="orb-module-readout">
+                <span>OUTPUT: {currentOutput}</span>
+                <span>PROCESSING: {processingPercent}%</span>
+              </div>
+            </div>
+          </div>
+        ) : (
         <div className="cards-grid">
           {/* Emotion Card */}
           <div className="card emotion-card">
@@ -555,7 +680,7 @@ export default function App() {
               <span className="card-icon">♥</span>
             </div>
             
-            <div className="main-dial-wrapper">
+            <div className="main-dial-wrapper align-bar">
               <ThreeGearDial
                 value={emotionDial}
                 variant="emotion"
@@ -566,6 +691,7 @@ export default function App() {
                 <span className="dial-label-right">100%</span>
               </div>
             </div>
+
 
             <div className="card-dropdown">
               <select
@@ -578,6 +704,7 @@ export default function App() {
                 <option value="VULNERABLE">VULNERABLE</option>
               </select>
             </div>
+
 
             {/* Sub-dials */}
             <div className="sub-dials">
@@ -593,7 +720,7 @@ export default function App() {
           </div>
 
           {/* Vocal Delivery Card */}
-          <div className="card vocal-card">
+          <div className="card vocal-card" style={{ position: 'relative' }}>
             <div className="card-header">
               <div>
                 <h2>VOCAL DELIVERY</h2>
@@ -602,7 +729,7 @@ export default function App() {
               <span className="card-icon">♪</span>
             </div>
             
-            <div className="main-dial-wrapper">
+            <div className="main-dial-wrapper align-bar">
               <ThreeGearDial
                 value={vocalDial}
                 variant="vocal"
@@ -613,6 +740,7 @@ export default function App() {
                 <span className="dial-label-right">POWERFUL</span>
               </div>
             </div>
+
 
             <div className="card-dropdown">
               <select
@@ -626,6 +754,7 @@ export default function App() {
               </select>
             </div>
 
+
             {/* Sub-dials */}
             <div className="sub-dials">
               {SUB_DIAL_PARAMS.vocal.map(param => (
@@ -638,6 +767,7 @@ export default function App() {
                 />
               ))}
             </div>
+
           </div>
 
           {/* AI Performance Core Card */}
@@ -650,34 +780,80 @@ export default function App() {
               <span className="card-icon">⚛</span>
             </div>
 
-            <div className="globe-wrapper">
-              <HolographicGlobe
-                drive={emotionDial / 100}
-                bass={bassDrive}
-                treble={trebleDrive}
-                distortion={distortionDrive}
-              />
+            <div className="core-gyro-row">
+              <div className="core-gyro-item">
+                <GyroscopicDial
+                  value={coreDials.harmony}
+                  label="HARMONY"
+                  color={AMBER}
+                  size={150}
+                  onChange={(nextValue) => handleCoreDialChange("harmony", nextValue)}
+                />
+              </div>
+              <div className="core-gyro-item">
+                <GyroscopicDial
+                  value={coreDials.rhythm}
+                  label="RHYTHM"
+                  color={AMBER}
+                  size={150}
+                  onChange={(nextValue) => handleCoreDialChange("rhythm", nextValue)}
+                />
+              </div>
+              <div className="core-gyro-item">
+                <GyroscopicDial
+                  value={coreDials.dynamics}
+                  label="DYNAMICS"
+                  color={AMBER}
+                  size={150}
+                  onChange={(nextValue) => handleCoreDialChange("dynamics", nextValue)}
+                />
+              </div>
             </div>
 
             <div className="analysis-section">
               <h3 className="analysis-title">ANALYZING</h3>
               <div className="analysis-grid">
-                {Object.entries(analysisData).map(([key, value]) => (
-                  <div key={key} className="analysis-item">
-                    <span className="analysis-label">{key.toUpperCase()}</span>
-                    <span className="analysis-value">{value}%</span>
+                {analysisRows.map((row) => (
+                  <div
+                    key={row.key}
+                    className="analysis-item"
+                    style={{ borderLeftColor: row.color }}
+                  >
+                    <div className="analysis-item-head">
+                      <span className="analysis-label">{row.label}</span>
+                      <span className="analysis-value" style={{ color: row.color }}>{row.value}%</span>
+                    </div>
+                    <div className="analysis-meter">
+                      <div
+                        className="analysis-meter-fill"
+                        style={{
+                          width: `${row.value}%`,
+                          background: `linear-gradient(90deg, rgba(34, 243, 255, 0.35), ${row.color})`,
+                          boxShadow: `0 0 12px ${row.color}`
+                        }}
+                      />
+                    </div>
                   </div>
                 ))}
               </div>
 
               <div className="processing-bar">
-                <div className="bar-fill" style={{ width: processingWidth }} />
+                <div
+                  className="bar-fill"
+                  style={{
+                    width: processingWidth,
+                    background: `linear-gradient(90deg, rgba(34, 243, 255, 0.45), ${processingColor})`,
+                    boxShadow: `0 0 14px ${processingColor}`
+                  }}
+                />
               </div>
               <small>PROCESSING PERFORMANCE DATA</small>
               <p className="current-output">{currentOutput}</p>
             </div>
           </div>
+
         </div>
+        )}
       </main>
 
       <div className="floating-action-buttons">
@@ -686,6 +862,7 @@ export default function App() {
           onClick={() => {
             setCompareOpen(true);
             setSettingsOpen(false);
+            setArrangementOpen(false);
           }}
         >
           ⇄ Compare
@@ -696,12 +873,13 @@ export default function App() {
           onClick={() => {
             setSettingsOpen(true);
             setCompareOpen(false);
+            setArrangementOpen(false);
           }}
         >
           ⚙ Settings
         </button>
-      </div>
 
+      </div>
       {compareOpen && (
         <div className="panel-overlay" onClick={() => setCompareOpen(false)}>
           <div className="bottom-panel" onClick={(e) => e.stopPropagation()}>

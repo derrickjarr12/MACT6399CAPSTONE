@@ -1,3 +1,20 @@
+/* Corner dials for vocal card */
+.corner-dial {
+  width: 56px;
+  height: 56px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  z-index: 2;
+}
+.corner-dial-label {
+  font-size: 0.7rem;
+  font-family: "Syncopate", sans-serif;
+  margin-top: 2px;
+  letter-spacing: 0.08em;
+  text-shadow: 0 0 6px rgba(0,0,0,0.18);
+}
 :root {
   --bg-0: #02060d;
   --bg-1: #04101d;
@@ -292,6 +309,71 @@ body::after {
   align-items: stretch;
 }
 
+.orb-module-view {
+  width: min(1700px, 100%);
+  margin: 0 auto;
+}
+
+.orb-module-shell {
+  min-height: calc(100vh - 250px);
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  gap: 0.75rem;
+  background:
+    linear-gradient(180deg, rgba(9, 29, 48, 0.72), rgba(5, 18, 32, 0.68)),
+    radial-gradient(circle at 20% 8%, rgba(63, 209, 255, 0.24), transparent 42%);
+  border: 1px solid var(--line);
+  clip-path: polygon(0 16px, 16px 0, calc(100% - 16px) 0, 100% 16px, 100% calc(100% - 16px), calc(100% - 16px) 100%, 16px 100%, 0 calc(100% - 16px));
+  padding: 0.9rem;
+  box-shadow: inset 0 0 0 1px rgba(81, 215, 255, 0.14), 0 0 30px rgba(0, 0, 0, 0.42);
+}
+
+.orb-module-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.8rem;
+  border-bottom: 1px solid var(--line-soft);
+  padding-bottom: 0.6rem;
+}
+
+.orb-module-header h2 {
+  margin: 0;
+  color: var(--cyan-strong);
+  font-family: "Syncopate", sans-serif;
+  letter-spacing: 0.08em;
+  font-size: 1.1rem;
+}
+
+.orb-module-header p {
+  margin: 0.28rem 0 0;
+  color: var(--text-soft);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  font-family: "Syncopate", sans-serif;
+}
+
+.orb-module-stage {
+  min-height: 520px;
+  border: 1px solid var(--line-soft);
+  background: radial-gradient(circle at 50% 45%, rgba(38, 177, 255, 0.2), rgba(5, 20, 33, 0.6) 48%, rgba(3, 14, 24, 0.82) 100%);
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+
+.orb-module-readout {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: var(--cyan-strong);
+  font-family: "Syncopate", sans-serif;
+  letter-spacing: 0.08em;
+  font-size: 0.72rem;
+  border-top: 1px solid var(--line-soft);
+  padding-top: 0.5rem;
+}
+
 .card {
   position: relative;
   background:
@@ -479,23 +561,6 @@ body::after {
   text-shadow: 0 0 12px rgba(255, 155, 61, 0.28), 0 0 8px rgba(0, 0, 0, 0.5);
 }
 
-.main-dial {
-  width: 300px;
-  height: 300px;
-  max-width: 100%;
-  border-radius: 50%;
-  background:
-    radial-gradient(circle, rgba(28, 35, 43, 0.2) 0%, rgba(17, 23, 31, 0.95) 52%, rgba(8, 12, 18, 1) 100%);
-  box-shadow: inset 0 0 62px rgba(0, 0, 0, 0.75), 0 0 18px rgba(36, 197, 255, 0.14);
-}
-
-.dial-bg {
-  fill: rgba(10, 13, 18, 0.98);
-  stroke: rgba(116, 125, 134, 0.4);
-  stroke-width: 2.2;
-}
-
-.gear-ring {
   fill: none;
   stroke: rgba(160, 170, 180, 0.26);
   stroke-width: 7;
@@ -634,6 +699,23 @@ body::after {
   gap: 0.6rem;
 }
 
+/* For 7 dials in vocal card, smaller dials and more columns */
+.vocal-card .sub-dials.vocal-seven {
+  grid-template-columns: repeat(7, 1fr);
+  gap: 0.35rem;
+}
+
+/* Ensure vocal and emotion micro dials are the same size and aligned */
+.vocal-card .sub-dial svg,
+.emotion-card .sub-dial svg {
+  width: 90px;
+  height: 90px;
+}
+
+.main-dial-wrapper.align-bar {
+  margin-top: 1.2rem;
+}
+
 .emotion-card .sub-dials {
   grid-template-columns: repeat(3, 1fr);
 }
@@ -641,7 +723,7 @@ body::after {
 .sub-dial {
   display: grid;
   justify-items: center;
-  gap: 0.25rem;
+  gap: 0.18rem;
 }
 
 .sub-dial svg {
@@ -673,6 +755,24 @@ body::after {
   stroke-width: 7;
 }
 
+.sub-level-core {
+  transition: fill 120ms linear, opacity 120ms linear;
+}
+
+.sub-level-track {
+  fill: none;
+  stroke: rgba(152, 166, 179, 0.24);
+  stroke-width: 4;
+}
+
+.sub-level-progress {
+  fill: none;
+  stroke-width: 4.5;
+  stroke-linecap: round;
+  filter: drop-shadow(0 0 4px rgba(112, 221, 255, 0.55));
+  transition: stroke-dashoffset 120ms linear, stroke 120ms linear;
+}
+
 .mini-gear-tooth {
   stroke: rgba(180, 194, 204, 0.82);
   stroke-width: 2.5;
@@ -691,6 +791,15 @@ body::after {
 .sub-center {
   fill: #0d151f;
   stroke: rgba(165, 179, 191, 0.55);
+}
+
+.sub-level-value {
+  font-family: "Orbitron", "Syncopate", sans-serif;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  font-weight: 700;
+  text-shadow: 0 0 6px rgba(0, 0, 0, 0.4);
+  pointer-events: none;
 }
 
 .sub-slider {
@@ -739,6 +848,31 @@ body::after {
   min-height: 680px;
 }
 
+.orb-module-back-btn {
+  margin-top: 0.4rem;
+  width: auto;
+  border: 1px solid rgba(77, 219, 255, 0.42);
+  background:
+    linear-gradient(160deg, rgba(8, 29, 47, 0.92), rgba(4, 16, 28, 0.92));
+  color: var(--cyan-strong);
+  font-family: "Orbitron", "Rajdhani", "Syncopate", sans-serif;
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  padding: 0.6rem 0.7rem;
+  cursor: pointer;
+  clip-path: polygon(12px 0, calc(100% - 12px) 0, 100% 50%, calc(100% - 12px) 100%, 12px 100%, 0 50%);
+  box-shadow: inset 0 0 0 1px rgba(67, 212, 255, 0.22), 0 0 16px rgba(37, 230, 255, 0.18);
+  transition: border-color 150ms ease, box-shadow 150ms ease, color 150ms ease;
+}
+
+.orb-module-back-btn:hover {
+  border-color: rgba(106, 242, 255, 0.85);
+  color: #d9fcff;
+  box-shadow: inset 0 0 0 1px rgba(106, 242, 255, 0.34), 0 0 22px rgba(79, 220, 255, 0.3);
+}
+
 .globe-wrapper {
   min-height: 390px;
   position: relative;
@@ -780,6 +914,27 @@ body::after {
   padding-top: 0.6rem;
 }
 
+.core-gyro-row {
+  margin-top: 0.85rem;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.45rem;
+}
+
+.core-gyro-item {
+  display: grid;
+  place-items: center;
+  padding: 0.2rem 0.15rem 0.3rem;
+  border: 1px solid rgba(77, 219, 255, 0.16);
+  background: linear-gradient(180deg, rgba(7, 24, 39, 0.58), rgba(4, 14, 25, 0.58));
+  border-radius: 10px;
+}
+
+.core-gyro-item canvas {
+  width: min(100%, 150px) !important;
+  height: auto !important;
+}
+
 .analysis-title {
   margin: 0 0 0.45rem;
   font-size: 0.85rem;
@@ -791,21 +946,39 @@ body::after {
 .analysis-grid {
   display: grid;
   grid-template-columns: 1fr;
-  gap: 0.3rem;
+  gap: 0.45rem;
 }
 
 .analysis-item {
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  gap: 0.22rem;
   font-family: "Syncopate", sans-serif;
   font-size: 0.78rem;
   color: var(--text-soft);
   border-left: 2px solid rgba(117, 236, 255, 0.38);
-  padding: 0.3rem 0.45rem;
+  background: rgba(7, 23, 37, 0.35);
+  padding: 0.32rem 0.45rem 0.38rem;
+}
+
+.analysis-item-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
 }
 
 .analysis-value {
   color: var(--teal);
+}
+
+.analysis-meter {
+  height: 5px;
+  background: rgba(82, 213, 255, 0.08);
+  border: 1px solid rgba(77, 219, 255, 0.14);
+}
+
+.analysis-meter-fill {
+  height: 100%;
+  transition: width 120ms linear;
 }
 
 .processing-bar {

@@ -1,0 +1,18 @@
+{
+  "name": "mact6399capstone-root",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "nodemon src/index.js",
+    "dev:gui": "cd gui && npm run dev",
+    "dev:pnf": "cd PNF-AIMS/gui && npm run dev",
+    "build:gui": "cd gui && npm run build",
+    "build:pnf": "cd PNF-AIMS/gui && npm run build"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.14"
+  },
+  "dependencies": {
+    "express": "^5.2.1"
+  }
+}

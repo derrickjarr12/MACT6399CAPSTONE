@@ -1,4 +1,4 @@
-import React, { useId } from "react";
+import React, { useId, useRef } from "react";
 
 function clamp01(value) {
   return Math.max(0, Math.min(1, value));
@@ -12,32 +12,20 @@ function polarPoint(cx, cy, radius, degrees) {
   };
 }
 
-function normalizeAngle(degrees) {
-  let normalized = degrees;
-  while (normalized < -180) normalized += 360;
-  while (normalized > 180) normalized -= 360;
-  return normalized;
-}
-
-function angleToValue(degrees) {
-  const start = -135;
-  const sweep = 280;
-  const normalized = normalizeAngle(degrees);
-  const offset = normalized < start ? normalized + 360 - start : normalized - start;
-  const progress = Math.max(0, Math.min(1, offset / sweep));
-  return Math.round(progress * 100);
-}
-
-export default function ThreeGearDial({ value = 50, variant = "emotion", onChange }) {
+export default function ThreeGearDial({ value = 50, variant = "emotion", onChange, accentColor, hideValue }) {
   const gradientId = useId();
   const glowId = useId();
   const ringId = useId();
+  const activePointerIdRef = useRef(null);
   const clamped = clamp01(value / 100);
   const needleAngle = -135 + clamped * 280;
   const isVocal = variant === "vocal";
-  const accent = isVocal ? "#89f0ff" : "#ff9a3a";
-  const accentSoft = isVocal ? "#d6fbff" : "#ffd6ad";
-
+  let accent = isVocal ? "#89f0ff" : "#ff9a3a";
+  let accentSoft = isVocal ? "#d6fbff" : "#ffd6ad";
+  if (accentColor) {
+    accent = accentColor;
+    accentSoft = accentColor + '55';
+  }
   const teeth = Array.from({ length: 24 }).map((_, index) => {
     const angle = (index / 24) * 360;
     const isLongTooth = index % 2 === 0;
@@ -52,74 +40,68 @@ export default function ThreeGearDial({ value = 50, variant = "emotion", onChang
     );
   });
 
-  const miniScrews = [45, 135, 225, 315].map((angle, index) => {
-    const point = polarPoint(150, 150, 110, angle);
-    return <circle key={`screw-${index}`} cx={point.x} cy={point.y} r="5" className="gear-screw" />;
-  });
 
-  const tickMarks = Array.from({ length: 48 }).map((_, index) => {
-    const angle = (index / 48) * 360;
-    const major = index % 4 === 0;
-    const outer = major ? 129 : 126;
-    const inner = major ? 118 : 122;
-    const start = polarPoint(150, 150, inner, angle);
-    const end = polarPoint(150, 150, outer, angle);
-    return <line key={`tick-${index}`} x1={start.x} y1={start.y} x2={end.x} y2={end.y} className={major ? "gear-tick gear-tick-major" : "gear-tick gear-tick-minor"} />;
-  });
+  // --- Interactive dial handlers ---
+  // Calculate angle from pointer event
 
-  const subTicks = Array.from({ length: 24 }).map((_, index) => {
-    const angle = (index / 24) * 360 + 7;
-    const start = polarPoint(150, 150, 85, angle);
-    const end = polarPoint(150, 150, 94, angle);
-    return <line key={`subtick-${index}`} x1={start.x} y1={start.y} x2={end.x} y2={end.y} className="gear-subtick" />;
-  });
-
-  const highlightLine = polarPoint(150, 150, 88, needleAngle);
-  const highlightTip = polarPoint(150, 150, 124, needleAngle);
-
-  const updateFromPointer = (event) => {
-    if (!onChange) return;
-    const svg = event.currentTarget;
+  // Map pointer angle (0-360) to dial value (0-100) freely, with no dead zone
+  function getAngleFromEvent(event, svg) {
     const rect = svg.getBoundingClientRect();
-    const centerX = rect.left + rect.width / 2;
-    const centerY = rect.top + rect.height / 2;
-    const angle = (Math.atan2(event.clientY - centerY, event.clientX - centerX) * 180) / Math.PI + 90;
-    onChange(angleToValue(angle));
-  };
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    const x = event.clientX - cx;
+    const y = event.clientY - cy;
+    let angle = Math.atan2(y, x) * 180 / Math.PI;
+    angle = (angle + 450) % 360; // 0 at top, clockwise
+    return angle;
+  }
 
-  const handlePointerDown = (event) => {
-    updateFromPointer(event);
-    event.currentTarget.setPointerCapture(event.pointerId);
-  };
+  function angleToDialValueFree(angle) {
+    // Map 0-360 to 0-100, 0 at top, clockwise
+    return Math.max(0, Math.min(100, (angle / 360) * 100));
+  }
 
-  const handlePointerMove = (event) => {
-    if ((event.buttons & 1) !== 1) return;
-    updateFromPointer(event);
-  };
-
-  const handleKeyDown = (event) => {
+  function handlePointerDown(event) {
     if (!onChange) return;
+    event.preventDefault();
+    const svg = event.currentTarget;
+    const angle = getAngleFromEvent(event, svg);
+    onChange(angleToDialValueFree(angle));
+    activePointerIdRef.current = event.pointerId;
+    svg.setPointerCapture(event.pointerId);
+  }
 
+  function handlePointerMove(event) {
+    if (!onChange) return;
+    if (activePointerIdRef.current !== event.pointerId) return;
+    const angle = getAngleFromEvent(event, event.currentTarget);
+    onChange(angleToDialValueFree(angle));
+  }
+
+  function handlePointerUp(event) {
+    if (activePointerIdRef.current !== event.pointerId) return;
+    activePointerIdRef.current = null;
+  }
+
+  function handleKeyDown(event) {
+    if (!onChange) return;
     if (event.key === "ArrowLeft" || event.key === "ArrowDown") {
       event.preventDefault();
       onChange(Math.max(0, value - 1));
     }
-
     if (event.key === "ArrowRight" || event.key === "ArrowUp") {
       event.preventDefault();
       onChange(Math.min(100, value + 1));
     }
-
     if (event.key === "Home") {
       event.preventDefault();
       onChange(0);
     }
-
     if (event.key === "End") {
       event.preventDefault();
       onChange(100);
     }
-  };
+  }
 
   return (
     <div className="gear2d-shell">
@@ -135,72 +117,67 @@ export default function ThreeGearDial({ value = 50, variant = "emotion", onChang
         aria-valuenow={Math.round(value)}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerUp}
         onKeyDown={handleKeyDown}
       >
+        {/* Gear teeth */}
+        {teeth}
+
+        {/* Outer shadow for depth */}
+        <ellipse cx="150" cy="170" rx="100" ry="30" fill="#000" opacity="0.12" />
+
+        {/* Accent ring with gradient */}
+        <circle cx="150" cy="150" r="110" fill="none" stroke="url(#accentRing)" strokeWidth="10" />
+
+        {/* Main dial face with radial gradient */}
+        <circle cx="150" cy="150" r="90" fill="url(#dialFace)" stroke="url(#dialEdge)" strokeWidth="4" />
+
+        {/* Dial highlight for gloss */}
+        <ellipse cx="150" cy="120" rx="55" ry="18" fill="url(#highlight)" opacity="0.35" />
+
+        {/* Needle with shadow */}
+        <g transform={`rotate(${needleAngle} 150 150)`}>
+          <rect x="146.5" y="55" width="7" height="70" rx="3.5" fill="url(#needleGrad)" filter="url(#needleShadow)" />
+          <circle cx="150" cy="125" r="8" fill={accent} filter="url(#needleShadow)" />
+        </g>
+
+        {/* Center cap with 3D effect */}
+        <circle cx="150" cy="150" r="26" fill="url(#capGrad)" stroke={accent} strokeWidth="3" />
+        <ellipse cx="150" cy="144" rx="12" ry="5" fill="#fff" opacity="0.18" />
+
+        {/* SVG Gradients and Filters */}
         <defs>
-          <radialGradient id={`${gradientId}-metal`} cx="32%" cy="26%" r="72%">
-            <stop offset="0%" stopColor="#f9fbfd" />
-            <stop offset="18%" stopColor="#d8dfe6" />
-            <stop offset="43%" stopColor="#9098a2" />
-            <stop offset="68%" stopColor="#454e57" />
-            <stop offset="100%" stopColor="#131820" />
+          <radialGradient id="dialFace" cx="50%" cy="40%" r="70%">
+            <stop offset="0%" stop-color="#fff" stop-opacity="0.18" />
+            <stop offset="60%" stop-color="#222" stop-opacity="0.95" />
+            <stop offset="100%" stop-color="#111" stop-opacity="1" />
           </radialGradient>
-          <radialGradient id={`${gradientId}-core`} cx="38%" cy="32%" r="68%">
-            <stop offset="0%" stopColor="#f5f8fb" />
-            <stop offset="28%" stopColor="#9ea7b2" />
-            <stop offset="63%" stopColor="#2a313a" />
-            <stop offset="100%" stopColor="#090d12" />
-          </radialGradient>
-          <radialGradient id={`${gradientId}-hub`} cx="35%" cy="30%" r="72%">
-            <stop offset="0%" stopColor="#ffffff" />
-            <stop offset="22%" stopColor={accentSoft} />
-            <stop offset="50%" stopColor="#66707b" />
-            <stop offset="100%" stopColor="#0b1017" />
-          </radialGradient>
-          <linearGradient id={`${gradientId}-needle`} x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stopColor="#ffffff" />
-            <stop offset="45%" stopColor={accentSoft} />
-            <stop offset="100%" stopColor={accent} />
+          <linearGradient id="dialEdge" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#fff" stop-opacity="0.5" />
+            <stop offset="100%" stop-color={accent} stop-opacity="1" />
           </linearGradient>
-          <filter id={`${glowId}-shadow`} x="-40%" y="-40%" width="180%" height="180%">
-            <feDropShadow dx="0" dy="0" stdDeviation="3" floodColor={accent} floodOpacity="0.45" />
-            <feDropShadow dx="0" dy="0" stdDeviation="10" floodColor="#000000" floodOpacity="0.45" />
+          <linearGradient id="accentRing" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stop-color={accentSoft} />
+            <stop offset="100%" stop-color={accent} />
+          </linearGradient>
+          <radialGradient id="capGrad" cx="50%" cy="40%" r="70%">
+            <stop offset="0%" stop-color="#fff" stop-opacity="0.7" />
+            <stop offset="80%" stop-color={accentSoft} stop-opacity="1" />
+            <stop offset="100%" stop-color={accent} stop-opacity="1" />
+          </radialGradient>
+          <linearGradient id="needleGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#fff" stop-opacity="0.7" />
+            <stop offset="100%" stop-color={accent} stop-opacity="1" />
+          </linearGradient>
+          <radialGradient id="highlight" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stop-color="#fff" stop-opacity="0.8" />
+            <stop offset="100%" stop-color="#fff" stop-opacity="0" />
+          </radialGradient>
+          <filter id="needleShadow" x="0" y="0" width="300" height="300">
+            <feDropShadow dx="0" dy="2" stdDeviation="2" floodColor={accentSoft} />
           </filter>
-          <mask id={`${ringId}-mask`}>
-            <rect width="300" height="300" fill="white" />
-            <circle cx="150" cy="150" r="86" fill="black" />
-          </mask>
         </defs>
-
-        <circle cx="150" cy="150" r="141" className="gear-back-plate" />
-        <circle cx="150" cy="150" r="138" className="gear-outer-shadow" />
-        <g filter={`url(#${glowId}-shadow)`}>
-          <g className="gear-teeth-group">{teeth}</g>
-          <circle cx="150" cy="150" r="120" fill={`url(#${gradientId}-metal)`} className="gear-rim" />
-        </g>
-
-        <circle cx="150" cy="150" r="112" className="gear-rim-inner" />
-        <g className="gear-ticks-group">{tickMarks}</g>
-        <g className="gear-subticks-group">{subTicks}</g>
-
-        <circle cx="150" cy="150" r="84" className="gear-center-plate" />
-        <circle cx="150" cy="150" r="64" fill={`url(#${gradientId}-core)`} className="gear-center-core" />
-
-        <g mask={`url(#${ringId}-mask)`} className="gear-sheen-group">
-          <ellipse cx="118" cy="100" rx="78" ry="52" className="gear-sheen" />
-        </g>
-
-        <g transform={`rotate(${needleAngle} 150 150)`} className="gear-needle-group">
-          <line x1={highlightLine.x} y1={highlightLine.y} x2={highlightTip.x} y2={highlightTip.y} className="gear-needle" />
-          <polygon points="150,38 144,54 156,54" fill={`url(#${gradientId}-needle)`} className="gear-needle-tip" />
-        </g>
-
-        <circle cx="150" cy="150" r="42" className="gear-hub-ring" />
-        <circle cx="150" cy="150" r="30" fill={`url(#${gradientId}-hub)`} className="gear-hub" />
-        <circle cx="150" cy="150" r="18" className="gear-hub-core" />
-        <circle cx="150" cy="150" r="7" className="gear-hub-bolt" />
-
-        <g className="gear-bolts">{miniScrews}</g>
       </svg>
     </div>
   );
