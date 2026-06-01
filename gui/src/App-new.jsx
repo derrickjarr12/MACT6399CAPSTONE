@@ -1,5 +1,6 @@
 import './styles-match.css';
 import React, { useEffect, useMemo, useRef, useState, Suspense, lazy } from "react";
+import { Howl } from "howler";
 import ThreeGearDial from "./ThreeGearDial";
 import GyroscopicDial, { AMBER } from "./GyroscopicDial";
 const HolographicGlobe = lazy(() => import("./HolographicGlobe"));
@@ -49,11 +50,77 @@ function sciFiBarColor(value) {
   return `hsl(${hue} 96% 56%)`;
 }
 
+function extractAudioUrl(payload) {
+  if (!payload || typeof payload !== "object") return "";
+
+  const directKeys = [
+    "audioUrl",
+    "audio_url",
+    "url",
+    "trackUrl",
+    "track_url",
+    "outputUrl",
+    "output_url"
+  ];
+
+  for (const key of directKeys) {
+    if (typeof payload[key] === "string" && payload[key].startsWith("http")) {
+      return payload[key];
+    }
+  }
+
+  const arrayKeys = ["audioUrls", "audio_urls", "tracks", "outputs", "artifacts"];
+  for (const key of arrayKeys) {
+    if (!Array.isArray(payload[key]) || payload[key].length === 0) continue;
+    const item = payload[key][0];
+    if (typeof item === "string" && item.startsWith("http")) return item;
+    if (item && typeof item === "object") {
+      const nested = extractAudioUrl(item);
+      if (nested) return nested;
+    }
+  }
+
+  const nestedKeys = ["data", "result", "job", "response", "output"];
+  for (const key of nestedKeys) {
+    if (payload[key] && typeof payload[key] === "object") {
+      const nested = extractAudioUrl(payload[key]);
+      if (nested) return nested;
+    }
+  }
+
+  return "";
+}
+
+function extractJobId(payload) {
+  if (!payload || typeof payload !== "object") return "";
+  const keys = ["jobId", "job_id", "id", "taskId", "task_id"];
+  for (const key of keys) {
+    if (typeof payload[key] === "string" && payload[key].trim()) return payload[key];
+  }
+  if (payload.data && typeof payload.data === "object") return extractJobId(payload.data);
+  if (payload.result && typeof payload.result === "object") return extractJobId(payload.result);
+  return "";
+}
+
+function isSuccessStatus(payload) {
+  const raw = payload?.status || payload?.state || payload?.jobStatus || payload?.job_status;
+  if (!raw || typeof raw !== "string") return false;
+  return ["succeeded", "completed", "success", "done", "finished"].includes(raw.toLowerCase());
+}
+
+function isFailureStatus(payload) {
+  const raw = payload?.status || payload?.state || payload?.jobStatus || payload?.job_status;
+  if (!raw || typeof raw !== "string") return false;
+  return ["failed", "error", "cancelled", "canceled"].includes(raw.toLowerCase());
+}
+
 function buildNotation(settings, context) {
+  const vocalDelivery = settings.vocal.delivery ?? settings.vocal.texture;
   return [
     `[PERFORMANCE]: BPM:${context.tempo} TSIG:${context.timeSignature}`,
     `EMOTION:${context.emotionPreset}`,
     `VOCAL:${context.vocalPreset}`,
+    `VDEL:${vocalDelivery}`,
     `INT:${settings.emotion.intensity}`,
     `VULN:${settings.emotion.vulnerability}`,
     `CONF:${settings.emotion.confidence}`,
@@ -70,15 +137,18 @@ function buildNotation(settings, context) {
 }
 
 function buildPrompt(settings, context) {
+  const vocalDelivery = settings.vocal.delivery ?? settings.vocal.texture;
   const intensityText = rangeLabel(settings.emotion.intensity, "subdued", "balanced", "charged");
   const vulnerabilityText = rangeLabel(settings.emotion.vulnerability, "guarded", "open", "exposed");
   const confidenceText = rangeLabel(settings.emotion.confidence, "uncertain", "steady", "assured");
+  const deliveryText = rangeLabel(vocalDelivery, "gentle", "controlled", "driving");
   const textureText = rangeLabel(settings.vocal.texture, "smooth", "textured", "raspy");
   const timingText = rangeLabel(settings.vocal.timing, "tight", "centered", "laid-back");
 
   return [
     `Generate a ${context.emotionPreset.toLowerCase()} / ${context.vocalPreset.toLowerCase()} performance at ${context.tempo} BPM in ${context.timeSignature}.`,
     `Delivery should feel ${intensityText}, ${vulnerabilityText}, and ${confidenceText}.`,
+    `Overall vocal delivery should be ${deliveryText}.`,
     `Voice should be ${textureText} with breath:${settings.vocal.breath}, rasp:${settings.vocal.rasp}, runs:${settings.vocal.runs}.`,
     `Phrase timing should be ${timingText} with release:${settings.vocal.release} and warmth:${settings.vocal.warmth}.`,
     "Preserve lyrical clarity and produce a performance-ready render."
@@ -271,6 +341,7 @@ const INITIAL_SETTINGS = {
     tension: 34
   },
   vocal: {
+    delivery: 58,
     texture: 55,
     performanceState: 62,
     breath: 62,
@@ -312,12 +383,23 @@ export default function App() {
   const [afterAudio, setAfterAudio] = useState("");
   const [savedSessions, setSavedSessions] = useState([]);
   const [selectedSessionIndex, setSelectedSessionIndex] = useState("-1");
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [activeAudioIndex, setActiveAudioIndex] = useState(0);
+  const [coreSyncEnabled, setCoreSyncEnabled] = useState(false);
   const [coreDials, setCoreDials] = useState({
     harmony: 74,
     rhythm: 63,
     dynamics: 71
   });
+  const howlRef = useRef(null);
   const currentSettings = settings;
+
+  const audioTracks = useMemo(() => {
+    const tracks = [];
+    if (beforeAudio.trim()) tracks.push({ label: "ORIGINAL", url: beforeAudio.trim() });
+    if (afterAudio.trim()) tracks.push({ label: "GENERATED", url: afterAudio.trim() });
+    return tracks;
+  }, [beforeAudio, afterAudio]);
 
   const handleCoreDialChange = (key, value) => {
     setCoreDials(prev => ({
@@ -326,32 +408,79 @@ export default function App() {
     }));
   };
 
+  const syncedCoreDials = useMemo(() => {
+    const vocalDelivery = currentSettings.vocal.delivery ?? currentSettings.vocal.texture;
+    return {
+      harmony: clampPercent(
+        currentSettings.emotion.intensity * 0.45 +
+        vocalDelivery * 0.35 +
+        currentSettings.vocal.warmth * 0.2
+      ),
+      rhythm: clampPercent(
+        currentSettings.emotion.tension * 0.35 +
+        currentSettings.vocal.timing * 0.4 +
+        currentSettings.vocal.runs * 0.25
+      ),
+      dynamics: clampPercent(
+        currentSettings.emotion.intensity * 0.4 +
+        vocalDelivery * 0.35 +
+        currentSettings.vocal.rasp * 0.25
+      )
+    };
+  }, [
+    currentSettings.emotion.intensity,
+    currentSettings.emotion.tension,
+    currentSettings.vocal.delivery,
+    currentSettings.vocal.texture,
+    currentSettings.vocal.warmth,
+    currentSettings.vocal.timing,
+    currentSettings.vocal.runs,
+    currentSettings.vocal.rasp
+  ]);
+
+  const activeCoreDials = coreSyncEnabled
+    ? {
+        harmony: clampPercent(syncedCoreDials.harmony * 0.7 + coreDials.harmony * 0.3),
+        rhythm: clampPercent(syncedCoreDials.rhythm * 0.7 + coreDials.rhythm * 0.3),
+        dynamics: clampPercent(syncedCoreDials.dynamics * 0.7 + coreDials.dynamics * 0.3)
+      }
+    : {
+        harmony: clampPercent(coreDials.harmony),
+        rhythm: clampPercent(coreDials.rhythm),
+        dynamics: clampPercent(coreDials.dynamics)
+      };
+
+  const handleCoreSyncToggle = (event) => {
+    setCoreSyncEnabled(event.target.checked);
+  };
+
   const analysisData = useMemo(() => ({
     emotion: weightedParentScore(currentSettings.emotion.intensity, [
       currentSettings.emotion.warmth,
       currentSettings.emotion.tension,
       currentSettings.emotion.release
     ]),
-    vocal: weightedParentScore(currentSettings.vocal.texture, [
+    vocal: weightedParentScore(currentSettings.vocal.delivery ?? currentSettings.vocal.texture, [
       currentSettings.vocal.rasp,
       currentSettings.vocal.warmth,
       currentSettings.vocal.breath
     ]),
-    harmony: clampPercent(coreDials.harmony),
-    rhythm: clampPercent(coreDials.rhythm),
-    dynamics: clampPercent(coreDials.dynamics)
+    harmony: clampPercent(activeCoreDials.harmony),
+    rhythm: clampPercent(activeCoreDials.rhythm),
+    dynamics: clampPercent(activeCoreDials.dynamics)
   }), [
     currentSettings.emotion.intensity,
     currentSettings.emotion.warmth,
     currentSettings.emotion.tension,
     currentSettings.emotion.release,
+    currentSettings.vocal.delivery,
     currentSettings.vocal.texture,
     currentSettings.vocal.rasp,
     currentSettings.vocal.warmth,
     currentSettings.vocal.breath,
-    coreDials.harmony,
-    coreDials.rhythm,
-    coreDials.dynamics
+    activeCoreDials.harmony,
+    activeCoreDials.rhythm,
+    activeCoreDials.dynamics
   ]);
 
   const analysisRows = useMemo(() => [
@@ -385,6 +514,26 @@ export default function App() {
   useEffect(() => {
     window.localStorage.setItem("pnf-aims-sessions", JSON.stringify(savedSessions));
   }, [savedSessions]);
+
+  useEffect(() => {
+    return () => {
+      if (howlRef.current) {
+        howlRef.current.stop();
+        howlRef.current.unload();
+        howlRef.current = null;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (activeAudioIndex < audioTracks.length) return;
+    setActiveAudioIndex(0);
+  }, [activeAudioIndex, audioTracks.length]);
+
+  useEffect(() => {
+    if (!howlRef.current) return;
+    howlRef.current.volume(volume / 100);
+  }, [volume]);
 
   const handleEmotionChange = (key, value) => {
     setSettings(prev => ({
@@ -423,23 +572,101 @@ export default function App() {
   };
 
   const triggerTransport = (action) => {
-    if (action === "togglePlay") {
-      setIsPlaying(prev => {
-        const next = !prev;
-        setTransportStatus(next ? "PLAYING" : "PAUSED");
-        return next;
+    const unloadAudio = () => {
+      if (!howlRef.current) return;
+      howlRef.current.stop();
+      howlRef.current.unload();
+      howlRef.current = null;
+    };
+
+    const loadAudioTrack = (index, autoplay = false) => {
+      if (!audioTracks.length) {
+        unloadAudio();
+        setIsPlaying(false);
+        setTransportStatus("NO AUDIO URL");
+        return;
+      }
+
+      const safeIndex = ((index % audioTracks.length) + audioTracks.length) % audioTracks.length;
+      const track = audioTracks[safeIndex];
+      setActiveAudioIndex(safeIndex);
+      unloadAudio();
+
+      const sound = new Howl({
+        src: [track.url],
+        html5: true,
+        volume: volume / 100,
+        onplay: () => {
+          setIsPlaying(true);
+          setTransportStatus(`PLAYING ${track.label}`);
+        },
+        onpause: () => {
+          setIsPlaying(false);
+          setTransportStatus("PAUSED");
+        },
+        onstop: () => {
+          setIsPlaying(false);
+        },
+        onend: () => {
+          setIsPlaying(false);
+          setTransportStatus("ENDED");
+        },
+        onloaderror: () => {
+          setIsPlaying(false);
+          setTransportStatus("AUDIO LOAD FAILED");
+        },
+        onplayerror: () => {
+          setIsPlaying(false);
+          setTransportStatus("PLAYBACK BLOCKED");
+        }
       });
+
+      howlRef.current = sound;
+
+      if (autoplay) {
+        sound.play();
+      } else {
+        setTransportStatus(`READY ${track.label}`);
+      }
+    };
+
+    if (action === "togglePlay") {
+      if (!audioTracks.length) {
+        setTransportStatus("NO AUDIO URL");
+        return;
+      }
+
+      if (!howlRef.current) {
+        loadAudioTrack(activeAudioIndex, true);
+        return;
+      }
+
+      if (isPlaying) {
+        howlRef.current.pause();
+      } else {
+        howlRef.current.play();
+      }
       return;
     }
 
     if (action === "previous") {
       setWaveformSeed(prev => prev + 1);
+      const nextIndex = shuffleEnabled
+        ? Math.floor(Math.random() * Math.max(audioTracks.length, 1))
+        : activeAudioIndex - 1;
+      loadAudioTrack(nextIndex, isPlaying);
+      if (!audioTracks.length) return;
       setTransportStatus("PREVIOUS");
       return;
     }
 
     if (action === "next") {
       setWaveformSeed(prev => prev + 1);
+      const nextIndex = shuffleEnabled
+        ? Math.floor(Math.random() * Math.max(audioTracks.length, 1))
+        : activeAudioIndex + 1;
+      loadAudioTrack(nextIndex, isPlaying);
+      if (!audioTracks.length) return;
       setTransportStatus("NEXT");
       return;
     }
@@ -541,6 +768,88 @@ export default function App() {
     }
   };
 
+  const handleGenerateAudio = async () => {
+    if (isGenerating) return;
+
+    const apiBase = (import.meta.env.VITE_API_BASE_URL || "http://localhost:3000").replace(/\/$/, "");
+
+    try {
+      setIsGenerating(true);
+      setTransportStatus("GENERATING");
+      setSavedState("GENERATING AUDIO");
+
+      const generateRes = await fetch(`${apiBase}/api/apiframe/generate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          generator,
+          prompt: generatedPrompt,
+          payload: {
+            prompt: generatedPrompt,
+            notation: generatedNotation,
+            metadata: {
+              tempo,
+              timeSignature,
+              emotionPreset,
+              vocalPreset
+            }
+          }
+        })
+      });
+
+      const generateData = await generateRes.json();
+      if (!generateRes.ok) {
+        throw new Error(generateData?.error || "Generate request failed.");
+      }
+
+      const immediateAudio = extractAudioUrl(generateData);
+      if (immediateAudio) {
+        setAfterAudio(immediateAudio);
+        setSavedState("AUDIO GENERATED");
+        setTransportStatus("READY GENERATED");
+        return;
+      }
+
+      const jobId = extractJobId(generateData);
+      if (!jobId) {
+        throw new Error("No audio URL or job id returned by APIframe.");
+      }
+
+      const maxPolls = 20;
+      for (let attempt = 0; attempt < maxPolls; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 3000));
+        const statusRes = await fetch(`${apiBase}/api/apiframe/status/${encodeURIComponent(jobId)}?generator=${encodeURIComponent(generator)}`);
+        const statusData = await statusRes.json();
+        if (!statusRes.ok) {
+          throw new Error(statusData?.error || "Status request failed.");
+        }
+
+        const polledAudio = extractAudioUrl(statusData);
+        if (polledAudio) {
+          setAfterAudio(polledAudio);
+          setSavedState("AUDIO GENERATED");
+          setTransportStatus("READY GENERATED");
+          return;
+        }
+
+        if (isSuccessStatus(statusData)) {
+          throw new Error("Job completed but no audio URL was found.");
+        }
+
+        if (isFailureStatus(statusData)) {
+          throw new Error("APIFRAME JOB FAILED");
+        }
+      }
+
+      throw new Error("Generation timed out while polling status.");
+    } catch (error) {
+      setSavedState("GENERATION FAILED");
+      setTransportStatus("GENERATION FAILED");
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
   const handleDownloadNotation = () => {
     downloadTextFile(
       `${(sessionTitle || "song-idea").replace(/\s+/g, "-").toLowerCase()}-notation.txt`,
@@ -563,7 +872,7 @@ export default function App() {
   };
 
   const emotionDial = currentSettings.emotion.intensity;
-  const vocalDial = currentSettings.vocal.texture;
+  const vocalDial = currentSettings.vocal.delivery ?? currentSettings.vocal.texture;
   const waveformHeights = useMemo(() => {
     let seed = waveformSeed * 9973;
     return Array.from({ length: 200 }).map(() => {
@@ -733,7 +1042,7 @@ export default function App() {
               <ThreeGearDial
                 value={vocalDial}
                 variant="vocal"
-                onChange={(nextValue) => handleVocalChange("texture", nextValue)}
+                onChange={(nextValue) => handleVocalChange("delivery", nextValue)}
               />
               <div className="dial-labels">
                 <span className="dial-label-left">SOFT</span>
@@ -780,10 +1089,26 @@ export default function App() {
               <span className="card-icon">⚛</span>
             </div>
 
-            <div className="core-gyro-row">
+            <div className="core-sync-row">
+              <label className="core-sync-toggle">
+                <input
+                  type="checkbox"
+                  checked={coreSyncEnabled}
+                  onChange={handleCoreSyncToggle}
+                />
+                <span>HRD SYNC TO PERFORMANCE</span>
+              </label>
+              <small>
+                {coreSyncEnabled
+                  ? "HRD synced mode: 70% main-performance influence + 30% HRD dial influence."
+                  : "HRD independent mode: 100% HRD dial control without affecting other dials."}
+              </small>
+            </div>
+
+            <div className={`core-gyro-row ${coreSyncEnabled ? "is-synced" : ""}`}>
               <div className="core-gyro-item">
                 <GyroscopicDial
-                  value={coreDials.harmony}
+                  value={activeCoreDials.harmony}
                   label="HARMONY"
                   color={AMBER}
                   size={150}
@@ -792,7 +1117,7 @@ export default function App() {
               </div>
               <div className="core-gyro-item">
                 <GyroscopicDial
-                  value={coreDials.rhythm}
+                  value={activeCoreDials.rhythm}
                   label="RHYTHM"
                   color={AMBER}
                   size={150}
@@ -801,7 +1126,7 @@ export default function App() {
               </div>
               <div className="core-gyro-item">
                 <GyroscopicDial
-                  value={coreDials.dynamics}
+                  value={activeCoreDials.dynamics}
                   label="DYNAMICS"
                   color={AMBER}
                   size={150}
@@ -934,6 +1259,9 @@ export default function App() {
             </div>
 
             <div className="panel-actions">
+              <button onClick={handleGenerateAudio} disabled={isGenerating}>
+                {isGenerating ? "Generating..." : "Generate Audio"}
+              </button>
               <button onClick={handleCopyPrompt}>Copy Prompt</button>
               <button onClick={handleDownloadNotation}>Download Notation</button>
               <button onClick={handleSaveSession}>Save Session</button>
@@ -971,6 +1299,7 @@ export default function App() {
                 <select value={generator} onChange={(e) => setGenerator(e.target.value)}>
                   <option>Suno</option>
                   <option>Mureka</option>
+                  <option>Udio</option>
                 </select>
               </label>
 
@@ -1105,7 +1434,6 @@ export default function App() {
               className="volume-input"
               aria-label="Volume value"
             />
-            <span className="volume-label">{volume}%</span>
           </div>
 
           <div className="version-save">

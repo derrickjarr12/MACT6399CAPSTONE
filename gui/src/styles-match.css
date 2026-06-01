@@ -921,6 +921,39 @@ body::after {
   gap: 0.45rem;
 }
 
+.core-sync-row {
+  margin-top: 0.55rem;
+  display: grid;
+  gap: 0.2rem;
+  border: 1px solid rgba(77, 219, 255, 0.14);
+  background: linear-gradient(180deg, rgba(7, 24, 39, 0.5), rgba(4, 14, 25, 0.5));
+  padding: 0.45rem 0.5rem;
+}
+
+.core-sync-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-family: "Syncopate", sans-serif;
+  letter-spacing: 0.08em;
+  font-size: 0.62rem;
+  color: var(--cyan-strong);
+}
+
+.core-sync-toggle input {
+  accent-color: var(--cyan-strong);
+}
+
+.core-sync-row small {
+  font-size: 0.58rem;
+  letter-spacing: 0.06em;
+  color: var(--text-soft);
+}
+
+.core-gyro-row.is-synced {
+  opacity: 0.86;
+}
+
 .core-gyro-item {
   display: grid;
   place-items: center;
@@ -1067,7 +1100,10 @@ body::after {
 
 .playback-controls {
   display: flex;
+  align-items: center;
   gap: 0.5rem;
+  justify-self: center;
+  transform: translateX(-56px);
 }
 
 .control-btn {
@@ -1097,6 +1133,7 @@ body::after {
   display: flex;
   align-items: center;
   gap: 0.45rem;
+  justify-self: start;
 }
 
 .volume-slider {
@@ -1135,7 +1172,9 @@ body::after {
 
 .version-save {
   display: flex;
+  align-items: center;
   gap: 0.5rem;
+  justify-self: end;
 }
 
 .save-btn {
@@ -1458,6 +1497,10 @@ textarea {
   .ab-container {
     grid-template-columns: 1fr;
     justify-items: start;
+  }
+
+  .playback-controls {
+    transform: none;
   }
 
   .compare-grid {
