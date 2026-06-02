@@ -89,6 +89,17 @@ PROVIDER_REQUEST_TIMEOUT=30000
 
 # Enable debug logging (true/false)
 PROVIDER_DEBUG=false
+
+# Optional MySQL persistence for request/job tracking
+MYSQL_HOST=127.0.0.1
+MYSQL_PORT=3306
+MYSQL_USER=root
+MYSQL_PASSWORD=your_mysql_password
+MYSQL_DATABASE=pnf_aims
+MYSQL_TABLE=pnf_request_jobs
+
+# Optional MySQL pool size
+MYSQL_CONNECTION_LIMIT=10
 ```
 
 ## Troubleshooting
