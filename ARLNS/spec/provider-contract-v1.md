@@ -122,6 +122,14 @@ Flow for each adapter:
 3. Call provider API.
 4. Convert provider response to normalized shape with `normalizeProviderResult()`.
 
+## Persistence And Restart Requirements
+
+- Each provider request should be assigned a stable internal `requestId` before dispatch.
+- Each provider response should preserve the provider-specific `jobId` when the provider is asynchronous.
+- The adapter or backend should persist `requestId`, `providerJobId`, `normalizedStatus`, `audioUrl`, and compare context so the request can be recovered after a restart.
+- MySQL is the preferred persistence layer for the current implementation; if it is not configured, in-memory fallback is acceptable for local development only.
+- Status polling should use the provider `jobId`, while application lookup should use the internal `requestId`.
+
 ## Security Requirements
 
 - Keep provider keys server-side only.

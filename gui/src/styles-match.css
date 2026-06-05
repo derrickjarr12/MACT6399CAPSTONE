@@ -1,3 +1,5 @@
+@import url("https://fonts.googleapis.com/css2?family=Exo+2:wght@500;600;700&family=Manrope:wght@400;500;600&display=swap");
+
 /* Corner dials for vocal card */
 .corner-dial {
   width: 56px;
@@ -561,6 +563,7 @@ body::after {
   text-shadow: 0 0 12px rgba(255, 155, 61, 0.28), 0 0 8px rgba(0, 0, 0, 0.5);
 }
 
+.gear-ring {
   fill: none;
   stroke: rgba(160, 170, 180, 0.26);
   stroke-width: 7;
@@ -1317,6 +1320,53 @@ body::after {
   min-height: 84px;
 }
 
+.upload-row {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  margin-top: 0.4rem;
+  margin-bottom: 0.9rem;
+}
+
+.upload-local-btn {
+  padding: 0.52rem 0.9rem;
+  border-radius: 999px;
+  border: 1px solid rgba(178, 201, 255, 0.4);
+  background: linear-gradient(180deg, rgba(22, 31, 52, 0.92), rgba(14, 20, 34, 0.92));
+  color: var(--text);
+  font-family: "Syncopate", sans-serif;
+  font-size: 0.64rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: border-color 160ms ease, transform 160ms ease, box-shadow 160ms ease;
+}
+
+.upload-local-btn:hover {
+  border-color: rgba(178, 201, 255, 0.62);
+  box-shadow: 0 0 0 1px rgba(178, 201, 255, 0.18), 0 6px 14px rgba(0, 0, 0, 0.28);
+  transform: translateY(-1px);
+}
+
+.upload-file-name {
+  color: var(--text-soft);
+  font-family: "Space Grotesk", "Segoe UI", sans-serif;
+  font-size: 0.72rem;
+  letter-spacing: 0.02em;
+  line-height: 1.2;
+}
+
+@media (max-width: 640px) {
+  .upload-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .upload-local-btn {
+    width: 100%;
+  }
+}
+
 .audio-preview {
   width: 100%;
   min-height: 34px;
@@ -1409,6 +1459,71 @@ body::after {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 24px;
+}
+
+.compare-panel-shell {
+  --compare-display-font: "Exo 2", "Syncopate", sans-serif;
+  --compare-ui-font: "Manrope", "Space Grotesk", "Segoe UI", sans-serif;
+}
+
+.compare-panel-shell .panel-header h2,
+.compare-panel-shell .compare-card h3,
+.compare-panel-shell .profile-summary h4 {
+  font-family: var(--compare-display-font);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.compare-panel-shell label,
+.compare-panel-shell input,
+.compare-panel-shell textarea,
+.compare-panel-shell select,
+.compare-panel-shell .upload-file-name,
+.compare-panel-shell .profile-summary p,
+.compare-panel-shell .panel-actions button,
+.compare-panel-shell .panel-header button {
+  font-family: var(--compare-ui-font);
+}
+
+.compare-panel-shell label {
+  letter-spacing: 0.015em;
+}
+
+.compare-panel-shell .panel-header button,
+.compare-panel-shell .panel-actions button {
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+
+.settings-panel-shell {
+  --settings-display-font: "Exo 2", "Syncopate", sans-serif;
+  --settings-ui-font: "Manrope", "Space Grotesk", "Segoe UI", sans-serif;
+}
+
+.settings-panel-shell .panel-header h2,
+.settings-panel-shell .settings-section h3,
+.settings-panel-shell .profile-summary h4 {
+  font-family: var(--settings-display-font);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.settings-panel-shell label,
+.settings-panel-shell select,
+.settings-panel-shell input,
+.settings-panel-shell textarea,
+.settings-panel-shell .profile-summary p,
+.settings-panel-shell .panel-header button {
+  font-family: var(--settings-ui-font);
+}
+
+.settings-panel-shell label {
+  letter-spacing: 0.015em;
+}
+
+.settings-panel-shell .panel-header button {
+  font-weight: 600;
+  letter-spacing: 0.03em;
 }
 
 .compare-grid {

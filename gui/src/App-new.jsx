@@ -167,6 +167,25 @@ function downloadTextFile(filename, content, mimeType = "text/plain") {
   URL.revokeObjectURL(url);
 }
 
+function detectAudioFormat(file) {
+  const mimeSubtype = file?.type?.startsWith("audio/")
+    ? file.type.slice("audio/".length).split(";")[0].toLowerCase()
+    : "";
+
+  if (mimeSubtype) {
+    if (mimeSubtype === "mpeg") return "mp3";
+    if (mimeSubtype === "mp4") return "m4a";
+    if (mimeSubtype === "x-wav" || mimeSubtype === "wav") return "wav";
+    return mimeSubtype;
+  }
+
+  const extension = file?.name?.split(".").pop()?.toLowerCase() || "";
+  if (!extension) return "";
+  if (extension === "mpeg") return "mp3";
+  if (extension === "aif") return "aiff";
+  return extension;
+}
+
 function MiniDial({ value, label, variant = "emotion", onChange }) {
   const isVocal = variant === "vocal";
   const currentValue = value || 0;
@@ -381,6 +400,10 @@ export default function App() {
   );
   const [beforeAudio, setBeforeAudio] = useState("");
   const [afterAudio, setAfterAudio] = useState("");
+  const [beforeAudioFileName, setBeforeAudioFileName] = useState("");
+  const [afterAudioFileName, setAfterAudioFileName] = useState("");
+  const [beforeAudioFormat, setBeforeAudioFormat] = useState("");
+  const [afterAudioFormat, setAfterAudioFormat] = useState("");
   const [savedSessions, setSavedSessions] = useState([]);
   const [selectedSessionIndex, setSelectedSessionIndex] = useState("-1");
   const [isGenerating, setIsGenerating] = useState(false);
@@ -392,14 +415,17 @@ export default function App() {
     dynamics: 71
   });
   const howlRef = useRef(null);
+  const beforeAudioFileInputRef = useRef(null);
+  const afterAudioFileInputRef = useRef(null);
+  const localAudioUrlsRef = useRef({ before: "", after: "" });
   const currentSettings = settings;
 
   const audioTracks = useMemo(() => {
     const tracks = [];
-    if (beforeAudio.trim()) tracks.push({ label: "ORIGINAL", url: beforeAudio.trim() });
-    if (afterAudio.trim()) tracks.push({ label: "GENERATED", url: afterAudio.trim() });
+    if (beforeAudio.trim()) tracks.push({ label: "ORIGINAL", url: beforeAudio.trim(), format: beforeAudioFormat || undefined });
+    if (afterAudio.trim()) tracks.push({ label: "GENERATED", url: afterAudio.trim(), format: afterAudioFormat || undefined });
     return tracks;
-  }, [beforeAudio, afterAudio]);
+  }, [beforeAudio, afterAudio, beforeAudioFormat, afterAudioFormat]);
 
   const handleCoreDialChange = (key, value) => {
     setCoreDials(prev => ({
@@ -522,8 +548,32 @@ export default function App() {
         howlRef.current.unload();
         howlRef.current = null;
       }
+
+      if (localAudioUrlsRef.current.before) {
+        URL.revokeObjectURL(localAudioUrlsRef.current.before);
+        localAudioUrlsRef.current.before = "";
+      }
+
+      if (localAudioUrlsRef.current.after) {
+        URL.revokeObjectURL(localAudioUrlsRef.current.after);
+        localAudioUrlsRef.current.after = "";
+      }
     };
   }, []);
+
+  useEffect(() => {
+    const localBeforeUrl = localAudioUrlsRef.current.before;
+    if (!localBeforeUrl || beforeAudio === localBeforeUrl) return;
+    URL.revokeObjectURL(localBeforeUrl);
+    localAudioUrlsRef.current.before = "";
+  }, [beforeAudio]);
+
+  useEffect(() => {
+    const localAfterUrl = localAudioUrlsRef.current.after;
+    if (!localAfterUrl || afterAudio === localAfterUrl) return;
+    URL.revokeObjectURL(localAfterUrl);
+    localAudioUrlsRef.current.after = "";
+  }, [afterAudio]);
 
   useEffect(() => {
     if (activeAudioIndex < audioTracks.length) return;
@@ -565,6 +615,51 @@ export default function App() {
     setSavedState("VERSION B SAVED");
   };
 
+  const openLocalAudioPicker = (target) => {
+    if (target === "before") {
+      beforeAudioFileInputRef.current?.click();
+      return;
+    }
+    afterAudioFileInputRef.current?.click();
+  };
+
+  const handleLocalAudioSelected = (target, event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+
+    if (file.type && !file.type.startsWith("audio/")) {
+      setSavedState("INVALID AUDIO FILE");
+      setTransportStatus("UPLOAD FAILED");
+      return;
+    }
+
+    const key = target === "before" ? "before" : "after";
+    const previousUrl = localAudioUrlsRef.current[key];
+    if (previousUrl) {
+      URL.revokeObjectURL(previousUrl);
+      localAudioUrlsRef.current[key] = "";
+    }
+
+    const localUrl = URL.createObjectURL(file);
+    const format = detectAudioFormat(file);
+    localAudioUrlsRef.current[key] = localUrl;
+
+    if (key === "before") {
+      setBeforeAudio(localUrl);
+      setBeforeAudioFileName(file.name);
+      setBeforeAudioFormat(format);
+      setSavedState("ORIGINAL AUDIO UPLOADED");
+    } else {
+      setAfterAudio(localUrl);
+      setAfterAudioFileName(file.name);
+      setAfterAudioFormat(format);
+      setSavedState("NEW AUDIO UPLOADED");
+    }
+
+    setTransportStatus("LOCAL AUDIO READY");
+  };
+
   const handleTempoChange = (value) => {
     const next = Number(value);
     if (Number.isNaN(next)) return;
@@ -594,6 +689,7 @@ export default function App() {
 
       const sound = new Howl({
         src: [track.url],
+        ...(track.format ? { format: [track.format] } : {}),
         html5: true,
         volume: volume / 100,
         onplay: () => {
@@ -749,6 +845,10 @@ export default function App() {
     setOriginalPrompt(session.originalPrompt || "");
     setBeforeAudio(session.beforeAudio || "");
     setAfterAudio(session.afterAudio || "");
+    setBeforeAudioFormat("");
+    setAfterAudioFormat("");
+    setBeforeAudioFileName("");
+    setAfterAudioFileName("");
     setTempo(session.settings.tempo || 120);
     setTimeSignature(session.settings.timeSignature || "4/4");
     setEmotionPreset(session.settings.emotionPreset || "LONGING");
@@ -805,6 +905,8 @@ export default function App() {
       const immediateAudio = extractAudioUrl(generateData);
       if (immediateAudio) {
         setAfterAudio(immediateAudio);
+        setAfterAudioFormat("");
+        setAfterAudioFileName("");
         setSavedState("AUDIO GENERATED");
         setTransportStatus("READY GENERATED");
         return;
@@ -827,6 +929,8 @@ export default function App() {
         const polledAudio = extractAudioUrl(statusData);
         if (polledAudio) {
           setAfterAudio(polledAudio);
+          setAfterAudioFormat("");
+          setAfterAudioFileName("");
           setSavedState("AUDIO GENERATED");
           setTransportStatus("READY GENERATED");
           return;
@@ -1207,7 +1311,7 @@ export default function App() {
       </div>
       {compareOpen && (
         <div className="panel-overlay" onClick={() => setCompareOpen(false)}>
-          <div className="bottom-panel" onClick={(e) => e.stopPropagation()}>
+          <div className="bottom-panel compare-panel-shell" onClick={(e) => e.stopPropagation()}>
             <div className="panel-header">
               <h2>Before / After Comparison</h2>
               <button onClick={() => setCompareOpen(false)}>Close</button>
@@ -1224,8 +1328,38 @@ export default function App() {
 
                 <label>
                   Original Audio / Song URL
-                  <input type="text" value={beforeAudio} onChange={(e) => setBeforeAudio(e.target.value)} placeholder="https://..." />
+                  <input
+                    type="text"
+                    value={beforeAudio}
+                    onChange={(e) => {
+                      setBeforeAudio(e.target.value);
+                      setBeforeAudioFormat("");
+                      if (e.target.value !== localAudioUrlsRef.current.before) {
+                        setBeforeAudioFileName("");
+                      }
+                    }}
+                    placeholder="https://..."
+                  />
                 </label>
+
+                <div className="upload-row">
+                  <button
+                    type="button"
+                    className="upload-local-btn"
+                    onClick={() => openLocalAudioPicker("before")}
+                  >
+                    Upload Local Audio
+                  </button>
+                  <span className="upload-file-name">{beforeAudioFileName || "No local file selected"}</span>
+                </div>
+
+                <input
+                  ref={beforeAudioFileInputRef}
+                  type="file"
+                  accept="audio/*,.wav,.mp3,.m4a,.aac,.ogg,.flac"
+                  onChange={(event) => handleLocalAudioSelected("before", event)}
+                  style={{ display: "none" }}
+                />
 
                 <label>
                   Original Prompt
@@ -1243,8 +1377,38 @@ export default function App() {
 
                 <label>
                   New Audio / Song URL
-                  <input type="text" value={afterAudio} onChange={(e) => setAfterAudio(e.target.value)} placeholder="https://..." />
+                  <input
+                    type="text"
+                    value={afterAudio}
+                    onChange={(e) => {
+                      setAfterAudio(e.target.value);
+                      setAfterAudioFormat("");
+                      if (e.target.value !== localAudioUrlsRef.current.after) {
+                        setAfterAudioFileName("");
+                      }
+                    }}
+                    placeholder="https://..."
+                  />
                 </label>
+
+                <div className="upload-row">
+                  <button
+                    type="button"
+                    className="upload-local-btn"
+                    onClick={() => openLocalAudioPicker("after")}
+                  >
+                    Upload Local Audio
+                  </button>
+                  <span className="upload-file-name">{afterAudioFileName || "No local file selected"}</span>
+                </div>
+
+                <input
+                  ref={afterAudioFileInputRef}
+                  type="file"
+                  accept="audio/*,.wav,.mp3,.m4a,.aac,.ogg,.flac"
+                  onChange={(event) => handleLocalAudioSelected("after", event)}
+                  style={{ display: "none" }}
+                />
 
                 <label>
                   Generated Prompt
@@ -1285,7 +1449,7 @@ export default function App() {
 
       {settingsOpen && (
         <div className="panel-overlay" onClick={() => setSettingsOpen(false)}>
-          <div className="bottom-panel" onClick={(e) => e.stopPropagation()}>
+          <div className="bottom-panel settings-panel-shell" onClick={(e) => e.stopPropagation()}>
             <div className="panel-header">
               <h2>Settings</h2>
               <button onClick={() => setSettingsOpen(false)}>Close</button>

@@ -24,6 +24,17 @@ The current PNF-AIMS workflow and environment uses the following tools and platf
 - React + Vite for the GUI (HTML/CSS)
 - MacBook Pro hardware
 
+## Runtime Persistence And Restart Behavior
+
+The backend now supports optional MySQL persistence for provider request tracking.
+
+- When `MYSQL_HOST`, `MYSQL_USER`, and `MYSQL_DATABASE` are present, request/job records are stored in MySQL.
+- The default table name is `pnf_request_jobs` unless `MYSQL_TABLE` is set.
+- Persisted fields include `requestId`, `providerJobId`, `generator`, `prompt`, `compareContext`, `normalizedStatus`, `audioUrl`, and the last provider response.
+- If MySQL is unavailable or not configured, the backend falls back to in-memory request tracking.
+- After a restart, MySQL-backed records remain available through `GET /api/apiframe/requests/:requestId`.
+- The generate/status flow should always carry `requestId` so the frontend can reconnect to the same request after a restart.
+
 ## Two-Layer Model
 
 ### 1. Song-Body Metadata Layer
@@ -188,3 +199,7 @@ A minimal demonstration is enough if it shows:
 - section-level metadata can be attached to a section
 - ARLNS still parses vocalist notation normally inside the section
 - the two layers do not conflict semantically
+
+## Operational Note
+
+For Suno, Mureka, Udio, and ElevenLabs, the app should treat provider job IDs as provider-specific tracking values and keep a separate internal `requestId` for cross-restart lookup and compare-session continuity.
