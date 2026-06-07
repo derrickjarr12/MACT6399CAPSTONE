@@ -203,3 +203,40 @@ A minimal demonstration is enough if it shows:
 ## Operational Note
 
 For Suno, Mureka, Udio, and ElevenLabs, the app should treat provider job IDs as provider-specific tracking values and keep a separate internal `requestId` for cross-restart lookup and compare-session continuity.
+
+## Implementation Update (June 2026)
+
+The current backend implementation now supports hybrid generation routing for stronger reliability:
+
+- `direct` mode: provider API only
+- `hybrid` mode: provider API first, automatic fallback to no-code webhook on retriable failures
+- `nocode` mode: no-code webhook only
+
+Hybrid mode is now the recommended production default because it preserves direct API control while adding operational resilience.
+
+### Request Lifecycle
+
+1. Frontend sends `requestId` with generate request.
+2. Backend attempts provider generation (or no-code route depending on mode).
+3. Backend stores normalized request status under internal `requestId`.
+4. Frontend can poll by provider `jobId` and/or internal `requestId`.
+5. If no-code flow completes asynchronously, callback updates request record.
+
+### Async Callback Endpoint
+
+The backend now exposes:
+
+- `POST /api/no-code/callback`
+
+This endpoint updates the existing request record and supports secured callbacks via shared token (`NOCODE_CALLBACK_TOKEN`).
+
+### Environment Variables Added For Routing
+
+- `GENERATION_ROUTING_MODE`
+- `ENABLE_NOCODE_FALLBACK`
+- `NOCODE_WEBHOOK_URL`
+- `NOCODE_WEBHOOK_AUTH_TOKEN`
+- `NOCODE_WEBHOOK_AUTH_HEADER`
+- `NOCODE_WEBHOOK_AUTH_SCHEME`
+- `NOCODE_WEBHOOK_TIMEOUT_MS`
+- `NOCODE_CALLBACK_TOKEN`

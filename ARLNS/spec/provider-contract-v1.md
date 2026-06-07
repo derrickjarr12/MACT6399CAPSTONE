@@ -135,3 +135,49 @@ Flow for each adapter:
 - Keep provider keys server-side only.
 - Never expose raw secrets in client logs.
 - Store provider-specific API responses in `rawProviderResponse` only after removing sensitive fields.
+
+## Persistence And Restart Requirements
+
+- Each provider request should be assigned a stable internal `requestId` before dispatch.
+- Each provider response should preserve the provider-specific `jobId` when the provider is asynchronous.
+- The adapter or backend should persist `requestId`, `providerJobId`, `normalizedStatus`, `audioUrl`, and compare context so the request can be recovered after a restart.
+- MySQL is the preferred persistence layer for the current implementation; if it is not configured, in-memory fallback is acceptable for local development only.
+- Status polling should use the provider `jobId`, while application lookup should use the internal `requestId`.
+
+## Routing Addendum (Hybrid + No-Code Fallback)
+
+Current implementation supports routing modes controlled by environment configuration:
+
+- `direct`: canonical provider adapter flow only
+- `hybrid`: canonical provider adapter first, then no-code webhook fallback for retriable failures
+- `nocode`: no-code webhook dispatch only
+
+For hybrid mode, fallback should only trigger on retriable conditions:
+
+- network/timeouts
+- upstream 5xx
+- rate-limits or throttling responses
+
+Non-retriable validation errors should be returned directly to caller.
+
+### Internal Request Identity
+
+`requestId` remains the application-level stable identifier and must be carried through all routes.
+
+- Provider `jobId` is provider-scoped and may be absent for webhook-first async starts.
+- Request lookup and state reconciliation should always support `requestId` even when `jobId` is unknown.
+
+### No-Code Completion Callback
+
+When no-code execution is async, completion should be posted to backend callback endpoint:
+
+- `POST /api/no-code/callback`
+
+Expected callback payload fields:
+
+- `requestId` (required)
+- `generator` (recommended)
+- `statusCode` (recommended)
+- `response` or `payload` with normalized provider outcome
+
+Callback authentication should use shared secret token (`NOCODE_CALLBACK_TOKEN`) sent as `x-callback-token` or bearer authorization.
