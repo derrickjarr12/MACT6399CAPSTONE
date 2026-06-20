@@ -1,8 +1,9 @@
 import './styles-match.css';
 import React, { useEffect, useMemo, useRef, useState, Suspense, lazy } from "react";
-import { Howl } from "howler";
+import { Howl, Howler } from "howler";
 import ThreeGearDial from "./ThreeGearDial";
 import GyroscopicDial, { AMBER } from "./GyroscopicDial";
+import saionLogo from "../images/logos/SAION.png";
 const HolographicGlobe = lazy(() => import("./HolographicGlobe"));
 
 function CornerDial({ value, onChange, color, label, style }) {
@@ -184,6 +185,15 @@ function detectAudioFormat(file) {
   if (extension === "mpeg") return "mp3";
   if (extension === "aif") return "aiff";
   return extension;
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : "");
+    reader.onerror = () => reject(new Error("Failed to read audio file."));
+    reader.readAsDataURL(file);
+  });
 }
 
 function MiniDial({ value, label, variant = "emotion", onChange }) {
@@ -373,8 +383,6 @@ const INITIAL_SETTINGS = {
 };
 
 export default function App() {
-  const [compareOpen, setCompareOpen] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [generator, setGenerator] = useState("Suno");
   const [vocalDetailLevel, setVocalDetailLevel] = useState("Balanced");
   const [harmonyStyle, setHarmonyStyle] = useState("Soft Layered");
@@ -404,6 +412,7 @@ export default function App() {
   const [afterAudioFileName, setAfterAudioFileName] = useState("");
   const [beforeAudioFormat, setBeforeAudioFormat] = useState("");
   const [afterAudioFormat, setAfterAudioFormat] = useState("");
+  const [beforeAudioDataUrl, setBeforeAudioDataUrl] = useState("");
   const [savedSessions, setSavedSessions] = useState([]);
   const [selectedSessionIndex, setSelectedSessionIndex] = useState("-1");
   const [isGenerating, setIsGenerating] = useState(false);
@@ -418,6 +427,11 @@ export default function App() {
   const beforeAudioFileInputRef = useRef(null);
   const afterAudioFileInputRef = useRef(null);
   const localAudioUrlsRef = useRef({ before: "", after: "" });
+  const analyserRef = useRef(null);
+  const fftRef = useRef(new Uint8Array(128));
+  const globeRafRef = useRef(null);
+  const [waveformDragOver, setWaveformDragOver] = useState(false);
+  const [globeAudio, setGlobeAudio] = useState({ drive: 0.3, bass: 0.3, treble: 0.3, distortion: 0.3 });
   const currentSettings = settings;
 
   const audioTracks = useMemo(() => {
@@ -585,6 +599,57 @@ export default function App() {
     howlRef.current.volume(volume / 100);
   }, [volume]);
 
+  // Drive the holographic globe from live audio FFT data while playing
+  useEffect(() => {
+    if (!isPlaying) {
+      if (globeRafRef.current) {
+        cancelAnimationFrame(globeRafRef.current);
+        globeRafRef.current = null;
+      }
+      return;
+    }
+
+    const tick = () => {
+      const analyser = analyserRef.current;
+      if (analyser) {
+        const data = fftRef.current;
+        analyser.getByteFrequencyData(data);
+        const binCount = data.length; // 128 bins for fftSize 256
+
+        // Bass: bins 0–5 (~0–860 Hz) — kick, sub-bass
+        let bassSum = 0;
+        for (let i = 0; i < 6; i++) bassSum += data[i];
+        const bass = Math.min(1, bassSum / (6 * 200));
+
+        // Treble: bins 60–127 (~10 kHz–22 kHz) — hiss, air
+        let trebleSum = 0;
+        for (let i = 60; i < binCount; i++) trebleSum += data[i];
+        const treble = Math.min(1, trebleSum / ((binCount - 60) * 140));
+
+        // Mids: bins 10–40 (~1.7 kHz–7 kHz) — vocals, presence → distortion shape
+        let midSum = 0;
+        for (let i = 10; i < 40; i++) midSum += data[i];
+        const distortion = Math.min(1, midSum / (30 * 180));
+
+        // Overall drive: RMS across all bins
+        let rms = 0;
+        for (let i = 0; i < binCount; i++) rms += data[i] * data[i];
+        const drive = Math.min(1, Math.sqrt(rms / binCount) / 160);
+
+        setGlobeAudio({ drive, bass, treble, distortion });
+      }
+      globeRafRef.current = requestAnimationFrame(tick);
+    };
+
+    globeRafRef.current = requestAnimationFrame(tick);
+    return () => {
+      if (globeRafRef.current) {
+        cancelAnimationFrame(globeRafRef.current);
+        globeRafRef.current = null;
+      }
+    };
+  }, [isPlaying]);
+
   const handleEmotionChange = (key, value) => {
     setSettings(prev => ({
       ...prev,
@@ -623,9 +688,7 @@ export default function App() {
     afterAudioFileInputRef.current?.click();
   };
 
-  const handleLocalAudioSelected = (target, event) => {
-    const file = event.target.files?.[0];
-    event.target.value = "";
+  const applyLocalAudioFile = async (target, file) => {
     if (!file) return;
 
     if (file.type && !file.type.startsWith("audio/")) {
@@ -649,6 +712,12 @@ export default function App() {
       setBeforeAudio(localUrl);
       setBeforeAudioFileName(file.name);
       setBeforeAudioFormat(format);
+      try {
+        const dataUrl = await readFileAsDataUrl(file);
+        setBeforeAudioDataUrl(dataUrl);
+      } catch (_) {
+        setBeforeAudioDataUrl("");
+      }
       setSavedState("ORIGINAL AUDIO UPLOADED");
     } else {
       setAfterAudio(localUrl);
@@ -658,6 +727,13 @@ export default function App() {
     }
 
     setTransportStatus("LOCAL AUDIO READY");
+  };
+
+  const handleLocalAudioSelected = (target, event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    void applyLocalAudioFile(target, file);
   };
 
   const handleTempoChange = (value) => {
@@ -672,6 +748,31 @@ export default function App() {
       howlRef.current.stop();
       howlRef.current.unload();
       howlRef.current = null;
+      analyserRef.current = null;
+    };
+
+    const connectAnalyser = (sound) => {
+      try {
+        const audioCtx = Howler.ctx;
+        if (!audioCtx) return;
+        const sounds = sound._sounds;
+        if (!sounds || !sounds.length) return;
+        const audioEl = sounds[0]._node;
+        if (!audioEl) return;
+        if (audioEl._saionAnalyserConnected) return;
+        if (audioCtx.state === "suspended") audioCtx.resume();
+        const analyser = audioCtx.createAnalyser();
+        analyser.fftSize = 256;
+        analyser.smoothingTimeConstant = 0.8;
+        const source = audioCtx.createMediaElementSource(audioEl);
+        source.connect(analyser);
+        analyser.connect(Howler.masterGain || audioCtx.destination);
+        analyserRef.current = analyser;
+        fftRef.current = new Uint8Array(analyser.frequencyBinCount);
+        audioEl._saionAnalyserConnected = true;
+      } catch (_) {
+        // analyser is optional — playback still works
+      }
     };
 
     const loadAudioTrack = (index, autoplay = false) => {
@@ -716,6 +817,9 @@ export default function App() {
           setTransportStatus("PLAYBACK BLOCKED");
         }
       });
+
+      // Connect Web Audio analyser once the track is loaded
+      sound.once("load", () => connectAnalyser(sound));
 
       howlRef.current = sound;
 
@@ -878,6 +982,34 @@ export default function App() {
       setTransportStatus("GENERATING");
       setSavedState("GENERATING AUDIO");
 
+      const hasSourceAudio = Boolean(beforeAudio.trim());
+      const hasSourceAudioUrl = hasSourceAudio && !beforeAudio.startsWith("blob:");
+      const hasSourceAudioData = hasSourceAudio && beforeAudio.startsWith("blob:") && Boolean(beforeAudioDataUrl);
+
+      if (hasSourceAudio && !hasSourceAudioUrl && !hasSourceAudioData) {
+        throw new Error("Source vocal is local but not ready yet. Re-upload the file and try again.");
+      }
+
+      const sourcePayload = hasSourceAudio
+        ? {
+            ...(hasSourceAudioUrl
+              ? {
+                  sourceAudioUrl: beforeAudio.trim(),
+                  source_audio_url: beforeAudio.trim(),
+                  inputAudioUrl: beforeAudio.trim(),
+                  input_audio_url: beforeAudio.trim()
+                }
+              : {
+                  sourceAudioData: beforeAudioDataUrl,
+                  source_audio_data: beforeAudioDataUrl,
+                  inputAudioData: beforeAudioDataUrl,
+                  input_audio_data: beforeAudioDataUrl,
+                  sourceAudioFileName: beforeAudioFileName || undefined,
+                  sourceAudioFormat: beforeAudioFormat || undefined
+                })
+          }
+        : {};
+
       const generateRes = await fetch(`${apiBase}/api/apiframe/generate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -887,6 +1019,7 @@ export default function App() {
           payload: {
             prompt: generatedPrompt,
             notation: generatedNotation,
+            ...sourcePayload,
             metadata: {
               tempo,
               timeSignature,
@@ -1006,11 +1139,34 @@ export default function App() {
 
   return (
     <div className="app-redesign">
+      {/* Hidden file inputs — always mounted so refs work from any tab */}
+      <input
+        ref={beforeAudioFileInputRef}
+        type="file"
+        accept="audio/*,.wav,.mp3,.m4a,.aac,.ogg,.flac"
+        onChange={(event) => handleLocalAudioSelected("before", event)}
+        style={{ display: "none" }}
+      />
+      <input
+        ref={afterAudioFileInputRef}
+        type="file"
+        accept="audio/*,.wav,.mp3,.m4a,.aac,.ogg,.flac"
+        onChange={(event) => handleLocalAudioSelected("after", event)}
+        style={{ display: "none" }}
+      />
+
       {/* Top Navigation */}
       <header className="top-nav">
-        <div className="nav-brand">PNF·AIMS</div>
+        <button
+          type="button"
+          className="nav-brand nav-brand-link"
+          onClick={() => setNavTab("PERFORMANCE")}
+          aria-label="Go to homepage"
+        >
+          <img className="nav-brand-logo" src={saionLogo} alt="SAION" />
+        </button>
         <nav className="nav-tabs">
-          {["PROJECT", "PERFORMANCE", "GENERATE", "VISUALIZE", "EXPORT"].map(tab => (
+          {["PERFORMANCE", "GENERATE", "VISUALIZE", "CONTROLS"].map(tab => (
             <button
               key={tab}
               className={`nav-tab ${navTab === tab ? "is-active" : ""}`}
@@ -1055,7 +1211,147 @@ export default function App() {
 
       {/* Main Content */}
       <main className="content-area">
-        {navTab === "VISUALIZE" ? (
+        {navTab === "GENERATE" ? (
+          <div className="generate-view">
+            <div className="generate-panel-shell">
+              <div className="panel-header">
+                <h2>Before / After Comparison & Generation</h2>
+                <button onClick={() => setNavTab("PERFORMANCE")}>← BACK TO PERFORMANCE</button>
+              </div>
+
+              <label>
+                Session Title
+                <input type="text" value={sessionTitle} onChange={(e) => setSessionTitle(e.target.value)} placeholder="Song Idea 1" />
+              </label>
+
+              <div className="compare-grid">
+                <div className="compare-card">
+                  <h3>Before</h3>
+
+                  <label>
+                    Original Audio / Song URL
+                    <input
+                      type="text"
+                      value={beforeAudio}
+                      onChange={(e) => {
+                        setBeforeAudio(e.target.value);
+                        setBeforeAudioFormat("");
+                        setBeforeAudioDataUrl("");
+                        if (e.target.value !== localAudioUrlsRef.current.before) {
+                          setBeforeAudioFileName("");
+                        }
+                      }}
+                      placeholder="https://..."
+                    />
+                  </label>
+
+                  <div className="upload-row">
+                    <button
+                      type="button"
+                      className="upload-local-btn"
+                      onClick={() => openLocalAudioPicker("before")}
+                    >
+                      Upload Local Audio
+                    </button>
+                    <span className="upload-file-name">{beforeAudioFileName || "No local file selected"}</span>
+                  </div>
+
+                  {beforeAudio && (
+                    <audio
+                      key={beforeAudio}
+                      controls
+                      src={beforeAudio}
+                      className="inline-audio-player"
+                    />
+                  )}
+
+                  <label>
+                    Original Prompt
+                    <textarea value={originalPrompt} onChange={(e) => setOriginalPrompt(e.target.value)} placeholder="Original idea prompt..." />
+                  </label>
+
+                  <div className="profile-summary">
+                    <h4>Original Performance Profile</h4>
+                    <p>Warm, soulful, intimate, restrained, emotional.</p>
+                  </div>
+                </div>
+
+                <div className="compare-card">
+                  <h3>After</h3>
+
+                  <label>
+                    New Audio / Song URL
+                    <input
+                      type="text"
+                      value={afterAudio}
+                      onChange={(e) => {
+                        setAfterAudio(e.target.value);
+                        setAfterAudioFormat("");
+                        if (e.target.value !== localAudioUrlsRef.current.after) {
+                          setAfterAudioFileName("");
+                        }
+                      }}
+                      placeholder="https://..."
+                    />
+                  </label>
+
+                  <div className="upload-row">
+                    <button
+                      type="button"
+                      className="upload-local-btn"
+                      onClick={() => openLocalAudioPicker("after")}
+                    >
+                      Upload Local Audio
+                    </button>
+                    <span className="upload-file-name">{afterAudioFileName || "No local file selected"}</span>
+                  </div>
+
+                  {afterAudio && (
+                    <audio
+                      key={afterAudio}
+                      controls
+                      src={afterAudio}
+                      className="inline-audio-player"
+                    />
+                  )}
+
+                  <label>
+                    Generated Prompt
+                    <textarea value={generatedPrompt} readOnly placeholder="GUI-generated prompt..." />
+                  </label>
+
+                  <div className="profile-summary">
+                    <h4>New Performance Profile</h4>
+                    <p>More intense, layered, vulnerable, wide, expressive.</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="panel-actions">
+                <button onClick={handleGenerateAudio} disabled={isGenerating}>
+                  {isGenerating ? "Generating..." : "Generate Audio"}
+                </button>
+                <button onClick={handleExportSessionJson}>Export Session</button>
+                <button onClick={handleCopyPrompt}>Copy Prompt</button>
+                <button onClick={handleDownloadNotation}>Download Notation</button>
+                <button onClick={handleSaveSession}>Save Session</button>
+                <button onClick={handleLoadSession}>Load Session</button>
+              </div>
+
+              <label>
+                Saved Sessions
+                <select value={selectedSessionIndex} onChange={(e) => setSelectedSessionIndex(e.target.value)}>
+                  <option value="-1">Select saved session</option>
+                  {savedSessions.map((session, index) => (
+                    <option key={`${session.savedAt || "session"}-${index}`} value={String(index)}>
+                      {session.title || `Session ${index + 1}`}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          </div>
+        ) : navTab === "VISUALIZE" ? (
           <div className="orb-module-view">
             <div className="orb-module-shell">
               <div className="orb-module-header">
@@ -1068,10 +1364,10 @@ export default function App() {
               <div className="orb-module-stage">
                 <Suspense fallback={<div>Loading Orb...</div>}>
                   <HolographicGlobe
-                    drive={emotionDial / 100}
-                    bass={bassDrive}
-                    treble={trebleDrive}
-                    distortion={distortionDrive}
+                    drive={isPlaying ? globeAudio.drive : emotionDial / 100}
+                    bass={isPlaying ? globeAudio.bass : bassDrive}
+                    treble={isPlaying ? globeAudio.treble : trebleDrive}
+                    distortion={isPlaying ? globeAudio.distortion : distortionDrive}
                   />
                 </Suspense>
               </div>
@@ -1081,8 +1377,48 @@ export default function App() {
               </div>
             </div>
           </div>
+        ) : navTab === "CONTROLS" ? (
+          <div className="generate-view">
+            <div className="generate-panel-shell">
+              <div className="panel-header">
+                <h2>Controls</h2>
+                <button onClick={() => setNavTab("PERFORMANCE")}>← BACK TO PERFORMANCE</button>
+              </div>
+
+              <div className="settings-section">
+                <label>
+                  Generator
+                  <select value={generator} onChange={(e) => setGenerator(e.target.value)}>
+                    <option>Suno</option>
+                    <option>Mureka</option>
+                    <option>Udio</option>
+                  </select>
+                </label>
+
+                <label>
+                  Vocal Detail Level
+                  <select value={vocalDetailLevel} onChange={(e) => setVocalDetailLevel(e.target.value)}>
+                    <option>Simple</option>
+                    <option>Balanced</option>
+                    <option>Advanced</option>
+                  </select>
+                </label>
+
+                <label>
+                  Harmony Style
+                  <select value={harmonyStyle} onChange={(e) => setHarmonyStyle(e.target.value)}>
+                    <option>Soft Layered</option>
+                    <option>Gospel Inspired</option>
+                    <option>Wide R&amp;B Stacks</option>
+                  </select>
+                </label>
+              </div>
+
+            </div>
+          </div>
         ) : (
-        <div className="cards-grid">
+        <>
+          <div className="cards-grid">
           {/* Emotion Card */}
           <div className="card emotion-card">
             <div className="card-header">
@@ -1282,217 +1618,9 @@ export default function App() {
           </div>
 
         </div>
+        </>
         )}
       </main>
-
-      <div className="floating-action-buttons">
-        <button
-          className="floating-action-btn"
-          onClick={() => {
-            setCompareOpen(true);
-            setSettingsOpen(false);
-            setArrangementOpen(false);
-          }}
-        >
-          ⇄ Compare
-        </button>
-
-        <button
-          className="floating-action-btn"
-          onClick={() => {
-            setSettingsOpen(true);
-            setCompareOpen(false);
-            setArrangementOpen(false);
-          }}
-        >
-          ⚙ Settings
-        </button>
-
-      </div>
-      {compareOpen && (
-        <div className="panel-overlay" onClick={() => setCompareOpen(false)}>
-          <div className="bottom-panel compare-panel-shell" onClick={(e) => e.stopPropagation()}>
-            <div className="panel-header">
-              <h2>Before / After Comparison</h2>
-              <button onClick={() => setCompareOpen(false)}>Close</button>
-            </div>
-
-            <label>
-              Session Title
-              <input type="text" value={sessionTitle} onChange={(e) => setSessionTitle(e.target.value)} placeholder="Song Idea 1" />
-            </label>
-
-            <div className="compare-grid">
-              <div className="compare-card">
-                <h3>Before</h3>
-
-                <label>
-                  Original Audio / Song URL
-                  <input
-                    type="text"
-                    value={beforeAudio}
-                    onChange={(e) => {
-                      setBeforeAudio(e.target.value);
-                      setBeforeAudioFormat("");
-                      if (e.target.value !== localAudioUrlsRef.current.before) {
-                        setBeforeAudioFileName("");
-                      }
-                    }}
-                    placeholder="https://..."
-                  />
-                </label>
-
-                <div className="upload-row">
-                  <button
-                    type="button"
-                    className="upload-local-btn"
-                    onClick={() => openLocalAudioPicker("before")}
-                  >
-                    Upload Local Audio
-                  </button>
-                  <span className="upload-file-name">{beforeAudioFileName || "No local file selected"}</span>
-                </div>
-
-                <input
-                  ref={beforeAudioFileInputRef}
-                  type="file"
-                  accept="audio/*,.wav,.mp3,.m4a,.aac,.ogg,.flac"
-                  onChange={(event) => handleLocalAudioSelected("before", event)}
-                  style={{ display: "none" }}
-                />
-
-                <label>
-                  Original Prompt
-                  <textarea value={originalPrompt} onChange={(e) => setOriginalPrompt(e.target.value)} placeholder="Original idea prompt..." />
-                </label>
-
-                <div className="profile-summary">
-                  <h4>Original Performance Profile</h4>
-                  <p>Warm, soulful, intimate, restrained, emotional.</p>
-                </div>
-              </div>
-
-              <div className="compare-card">
-                <h3>After</h3>
-
-                <label>
-                  New Audio / Song URL
-                  <input
-                    type="text"
-                    value={afterAudio}
-                    onChange={(e) => {
-                      setAfterAudio(e.target.value);
-                      setAfterAudioFormat("");
-                      if (e.target.value !== localAudioUrlsRef.current.after) {
-                        setAfterAudioFileName("");
-                      }
-                    }}
-                    placeholder="https://..."
-                  />
-                </label>
-
-                <div className="upload-row">
-                  <button
-                    type="button"
-                    className="upload-local-btn"
-                    onClick={() => openLocalAudioPicker("after")}
-                  >
-                    Upload Local Audio
-                  </button>
-                  <span className="upload-file-name">{afterAudioFileName || "No local file selected"}</span>
-                </div>
-
-                <input
-                  ref={afterAudioFileInputRef}
-                  type="file"
-                  accept="audio/*,.wav,.mp3,.m4a,.aac,.ogg,.flac"
-                  onChange={(event) => handleLocalAudioSelected("after", event)}
-                  style={{ display: "none" }}
-                />
-
-                <label>
-                  Generated Prompt
-                  <textarea value={generatedPrompt} readOnly placeholder="GUI-generated prompt..." />
-                </label>
-
-                <div className="profile-summary">
-                  <h4>New Performance Profile</h4>
-                  <p>More intense, layered, vulnerable, wide, expressive.</p>
-                </div>
-              </div>
-            </div>
-
-            <div className="panel-actions">
-              <button onClick={handleGenerateAudio} disabled={isGenerating}>
-                {isGenerating ? "Generating..." : "Generate Audio"}
-              </button>
-              <button onClick={handleCopyPrompt}>Copy Prompt</button>
-              <button onClick={handleDownloadNotation}>Download Notation</button>
-              <button onClick={handleSaveSession}>Save Session</button>
-              <button onClick={handleLoadSession}>Load Session</button>
-            </div>
-
-            <label>
-              Saved Sessions
-              <select value={selectedSessionIndex} onChange={(e) => setSelectedSessionIndex(e.target.value)}>
-                <option value="-1">Select saved session</option>
-                {savedSessions.map((session, index) => (
-                  <option key={`${session.savedAt || "session"}-${index}`} value={String(index)}>
-                    {session.title || `Session ${index + 1}`}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-        </div>
-      )}
-
-      {settingsOpen && (
-        <div className="panel-overlay" onClick={() => setSettingsOpen(false)}>
-          <div className="bottom-panel settings-panel-shell" onClick={(e) => e.stopPropagation()}>
-            <div className="panel-header">
-              <h2>Settings</h2>
-              <button onClick={() => setSettingsOpen(false)}>Close</button>
-            </div>
-
-            <div className="settings-section">
-              <h3>Performance Engine</h3>
-
-              <label>
-                Generator
-                <select value={generator} onChange={(e) => setGenerator(e.target.value)}>
-                  <option>Suno</option>
-                  <option>Mureka</option>
-                  <option>Udio</option>
-                </select>
-              </label>
-
-              <label>
-                Vocal Detail Level
-                <select value={vocalDetailLevel} onChange={(e) => setVocalDetailLevel(e.target.value)}>
-                  <option>Simple</option>
-                  <option>Balanced</option>
-                  <option>Advanced</option>
-                </select>
-              </label>
-
-              <label>
-                Harmony Style
-                <select value={harmonyStyle} onChange={(e) => setHarmonyStyle(e.target.value)}>
-                  <option>Soft Layered</option>
-                  <option>Gospel Inspired</option>
-                  <option>Wide R&amp;B Stacks</option>
-                </select>
-              </label>
-            </div>
-
-            <div className="profile-summary">
-              <h4>Notation Engine</h4>
-              <p>Hidden under the hood. Used to shape performance, phrasing, harmony, and emotional delivery.</p>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Bottom A/B Section */}
       <footer className="ab-section">
@@ -1515,24 +1643,49 @@ export default function App() {
               </button>
             </div>
 
-            <div className="waveform-display">
+            <div
+              className={`waveform-display waveform-dropzone ${waveformDragOver ? "is-drag-over" : ""} ${beforeAudio ? "has-audio" : ""}`}
+              onClick={() => openLocalAudioPicker("before")}
+              onDragOver={(e) => { e.preventDefault(); setWaveformDragOver(true); }}
+              onDragLeave={() => setWaveformDragOver(false)}
+              onDrop={(e) => {
+                e.preventDefault();
+                setWaveformDragOver(false);
+                const file = e.dataTransfer.files?.[0];
+                if (!file) return;
+                void applyLocalAudioFile("before", file);
+              }}
+              role="button"
+              tabIndex={0}
+              aria-label="Drop audio file or click to upload"
+              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") openLocalAudioPicker("before"); }}
+            >
               <div className="waveform-label">
-                {activeVersion === "A" ? "ORIGINAL" : "GENERATED"}
+                {beforeAudio
+                  ? (beforeAudioFileName || (activeVersion === "A" ? "ORIGINAL" : "GENERATED"))
+                  : "DROP AUDIO HERE · CLICK TO UPLOAD"}
               </div>
               <svg className="waveform" viewBox="0 0 200 40">
-                {waveformHeights.map((height, i) => {
-                  return (
-                    <rect
-                      key={i}
-                      x={i}
-                      y={20 - height / 2}
-                      width="0.8"
-                      height={height}
-                      className="wave-bar"
-                    />
-                  );
-                })}
+                {waveformHeights.map((height, i) => (
+                  <rect
+                    key={i}
+                    x={i}
+                    y={20 - height / 2}
+                    width="0.8"
+                    height={height}
+                    className="wave-bar"
+                  />
+                ))}
               </svg>
+              {beforeAudio && (
+                <audio
+                  key={beforeAudio}
+                  controls
+                  src={beforeAudio}
+                  className="waveform-audio-player"
+                  onClick={(e) => e.stopPropagation()}
+                />
+              )}
             </div>
           </div>
 

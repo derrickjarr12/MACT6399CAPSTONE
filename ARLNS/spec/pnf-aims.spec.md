@@ -214,6 +214,15 @@ The current backend implementation now supports hybrid generation routing for st
 
 Hybrid mode is now the recommended production default because it preserves direct API control while adding operational resilience.
 
+## Version 2 Roadmap Note (Deferred)
+
+The Live Vocal FX control module is intentionally deferred to a Version 2 milestone.
+
+- Scope (V2): browser-side preview chain for `EQ`, `Filter`, `Compressor`, `Reverb`, and `Delay`
+- Placement (V2): compact module inside the `CONTROLS` page to protect layout space on the main page
+- Workflow intent (V2): realtime audition while dialing, then external provider render for final-quality output
+- Current release intent: keep generation/prompt/notation flow stable and keep UI spacing/typography consistent across pages
+
 ### Request Lifecycle
 
 1. Frontend sends `requestId` with generate request.

@@ -1,0 +1,28 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "16:30"
+      timezone: "UTC"
+    open-pull-requests-limit: 8
+
+  - package-ecosystem: npm
+    directory: "/gui"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "16:35"
+      timezone: "UTC"
+    open-pull-requests-limit: 8
+
+  - package-ecosystem: npm
+    directory: "/PNF-AIMS/gui"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "16:40"
+      timezone: "UTC"
+    open-pull-requests-limit: 8
