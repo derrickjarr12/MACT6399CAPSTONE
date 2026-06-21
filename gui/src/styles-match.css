@@ -1612,6 +1612,34 @@ body::after {
   border: 1px solid rgba(255, 255, 255, 0.12);
 }
 
+.controls-effects-grid {
+  display: grid;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.controls-effect-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) minmax(180px, 2fr) 64px;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 0;
+}
+
+.controls-effect-label {
+  font-family: var(--font-ui);
+  letter-spacing: 0.04em;
+  color: var(--text-soft);
+}
+
+.controls-effect-slider {
+  width: 100%;
+}
+
+.controls-effect-input {
+  width: 64px;
+}
+
 label {
   display: flex;
   flex-direction: column;
@@ -1649,6 +1677,31 @@ textarea {
   border-radius: 999px;
   border: none;
   cursor: pointer;
+}
+
+.generate-panel-shell .panel-actions {
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.generate-panel-shell .panel-actions button {
+  padding: 8px 12px;
+  font-size: 0.8rem;
+  line-height: 1.1;
+}
+
+.local-preview-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(7, 20, 34, 0.6);
+  color: var(--text-soft);
+  font-size: 0.78rem;
+  letter-spacing: 0.01em;
+  margin-right: 4px;
 }
 
 @media (max-width: 768px) {
@@ -1809,6 +1862,18 @@ select,
 .settings-close:hover {
   border-color: rgba(178, 201, 255, 0.46);
   box-shadow: 0 6px 14px rgba(0, 0, 0, 0.32);
+}
+
+/* Keep Generate action buttons compact even after global button overrides */
+.generate-view .generate-panel-shell .panel-actions {
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.generate-view .generate-panel-shell .panel-actions > button {
+  padding: 6px 10px;
+  font-size: 0.76rem;
+  line-height: 1.05;
 }
 
 .card,

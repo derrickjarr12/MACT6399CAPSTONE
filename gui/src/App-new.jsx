@@ -115,7 +115,7 @@ function isFailureStatus(payload) {
   return ["failed", "error", "cancelled", "canceled"].includes(raw.toLowerCase());
 }
 
-function buildNotation(settings, context) {
+function buildNotation(settings, context, fxControls) {
   const vocalDelivery = settings.vocal.delivery ?? settings.vocal.texture;
   return [
     `[PERFORMANCE]: BPM:${context.tempo} TSIG:${context.timeSignature}`,
@@ -133,11 +133,15 @@ function buildNotation(settings, context) {
     `RUNS:${settings.vocal.runs}`,
     `TIMING:${settings.vocal.timing}`,
     `WARMTH:${settings.vocal.warmth}`,
-    `RELEASE:${settings.vocal.release}`
+    `RELEASE:${settings.vocal.release}`,
+    `FX_REVERB:${fxControls.reverb}`,
+    `FX_EQ:${fxControls.eq}`,
+    `FX_COMPRESSION:${fxControls.compression}`,
+    `FX_DELAY:${fxControls.delay}`
   ].join("\n");
 }
 
-function buildPrompt(settings, context) {
+function buildPrompt(settings, context, fxControls) {
   const vocalDelivery = settings.vocal.delivery ?? settings.vocal.texture;
   const intensityText = rangeLabel(settings.emotion.intensity, "subdued", "balanced", "charged");
   const vulnerabilityText = rangeLabel(settings.emotion.vulnerability, "guarded", "open", "exposed");
@@ -152,6 +156,7 @@ function buildPrompt(settings, context) {
     `Overall vocal delivery should be ${deliveryText}.`,
     `Voice should be ${textureText} with breath:${settings.vocal.breath}, rasp:${settings.vocal.rasp}, runs:${settings.vocal.runs}.`,
     `Phrase timing should be ${timingText} with release:${settings.vocal.release} and warmth:${settings.vocal.warmth}.`,
+    `Apply polish FX during rendering: reverb ${fxControls.reverb}%, EQ ${fxControls.eq}%, compression ${fxControls.compression}%, delay ${fxControls.delay}%.`,
     "Preserve lyrical clarity and produce a performance-ready render."
   ].join(" ");
 }
@@ -185,6 +190,22 @@ function detectAudioFormat(file) {
   if (extension === "mpeg") return "mp3";
   if (extension === "aif") return "aiff";
   return extension;
+}
+
+function createImpulseResponse(audioCtx, seconds = 1.8, decay = 2.4) {
+  const sampleRate = audioCtx.sampleRate;
+  const length = Math.max(1, Math.floor(sampleRate * seconds));
+  const impulse = audioCtx.createBuffer(2, length, sampleRate);
+
+  for (let channel = 0; channel < impulse.numberOfChannels; channel += 1) {
+    const data = impulse.getChannelData(channel);
+    for (let i = 0; i < length; i += 1) {
+      const envelope = Math.pow(1 - i / length, decay);
+      data[i] = (Math.random() * 2 - 1) * envelope;
+    }
+  }
+
+  return impulse;
 }
 
 function readFileAsDataUrl(file) {
@@ -382,6 +403,20 @@ const INITIAL_SETTINGS = {
   }
 };
 
+const INITIAL_FX_CONTROLS = {
+  reverb: 42,
+  eq: 50,
+  compression: 38,
+  delay: 29
+};
+
+const FX_CONTROL_PARAMS = [
+  { key: "reverb", label: "Reverb" },
+  { key: "eq", label: "EQ" },
+  { key: "compression", label: "Compression" },
+  { key: "delay", label: "Delay" }
+];
+
 export default function App() {
   const [generator, setGenerator] = useState("Suno");
   const [vocalDetailLevel, setVocalDetailLevel] = useState("Balanced");
@@ -416,7 +451,9 @@ export default function App() {
   const [savedSessions, setSavedSessions] = useState([]);
   const [selectedSessionIndex, setSelectedSessionIndex] = useState("-1");
   const [isGenerating, setIsGenerating] = useState(false);
+  const [localPreviewOnly, setLocalPreviewOnly] = useState(false);
   const [activeAudioIndex, setActiveAudioIndex] = useState(0);
+  const [fxControls, setFxControls] = useState(INITIAL_FX_CONTROLS);
   const [coreSyncEnabled, setCoreSyncEnabled] = useState(false);
   const [coreDials, setCoreDials] = useState({
     harmony: 74,
@@ -428,6 +465,7 @@ export default function App() {
   const afterAudioFileInputRef = useRef(null);
   const localAudioUrlsRef = useRef({ before: "", after: "" });
   const analyserRef = useRef(null);
+  const fxNodesRef = useRef(null);
   const fftRef = useRef(new Uint8Array(128));
   const globeRafRef = useRef(null);
   const [waveformDragOver, setWaveformDragOver] = useState(false);
@@ -492,6 +530,54 @@ export default function App() {
 
   const handleCoreSyncToggle = (event) => {
     setCoreSyncEnabled(event.target.checked);
+  };
+
+  const handleFxControlChange = (key, nextRawValue) => {
+    if (nextRawValue === "") return;
+    const parsed = Number(nextRawValue);
+    if (Number.isNaN(parsed)) return;
+    setFxControls((prev) => ({
+      ...prev,
+      [key]: clampPercent(parsed)
+    }));
+  };
+
+  const applyFxSettingsToChain = (nextFxControls, nextSettings = currentSettings) => {
+    const fxNodes = fxNodesRef.current;
+    if (!fxNodes) return;
+
+    const clampUnit = (value) => Math.max(0, Math.min(1, value));
+
+    const reverb = (nextFxControls.reverb ?? 0) / 100;
+    const eq = (nextFxControls.eq ?? 0) / 100;
+    const compression = (nextFxControls.compression ?? 0) / 100;
+    const delay = (nextFxControls.delay ?? 0) / 100;
+
+    const intensity = ((nextSettings?.emotion?.intensity ?? 50) / 100);
+    const vulnerability = ((nextSettings?.emotion?.vulnerability ?? 50) / 100);
+    const tension = ((nextSettings?.emotion?.tension ?? 50) / 100);
+    const delivery = (((nextSettings?.vocal?.delivery ?? nextSettings?.vocal?.texture ?? 50)) / 100);
+    const texture = ((nextSettings?.vocal?.texture ?? 50) / 100);
+    const rasp = ((nextSettings?.vocal?.rasp ?? 0) / 100);
+    const timing = ((nextSettings?.vocal?.timing ?? 50) / 100);
+
+    const eqBlend = clampUnit(eq * 0.7 + delivery * 0.2 + texture * 0.1);
+    const compressionBlend = clampUnit(compression * 0.68 + intensity * 0.22 + tension * 0.1);
+    const reverbBlend = clampUnit(reverb * 0.74 + vulnerability * 0.22 + (1 - tension) * 0.04);
+    const delayBlend = clampUnit(delay * 0.7 + (1 - timing) * 0.2 + rasp * 0.1);
+
+    fxNodes.eqNode.gain.value = -14 + eqBlend * 28;
+    fxNodes.compressor.threshold.value = -52 + compressionBlend * 44;
+    fxNodes.compressor.ratio.value = 1.2 + compressionBlend * 10.8;
+    fxNodes.compressor.attack.value = 0.002 + (1 - compressionBlend) * 0.058;
+    fxNodes.compressor.release.value = 0.08 + compressionBlend * 0.42;
+
+    fxNodes.reverbWetGain.gain.value = reverbBlend * 0.85;
+    fxNodes.dryGain.gain.value = 1 - reverbBlend * 0.35;
+
+    fxNodes.delayNode.delayTime.value = 0.02 + delayBlend * 0.58;
+    fxNodes.delayFeedbackGain.gain.value = 0.05 + delayBlend * 0.75;
+    fxNodes.delayWetGain.gain.value = delayBlend * 0.7;
   };
 
   const analysisData = useMemo(() => ({
@@ -598,6 +684,10 @@ export default function App() {
     if (!howlRef.current) return;
     howlRef.current.volume(volume / 100);
   }, [volume]);
+
+  useEffect(() => {
+    applyFxSettingsToChain(fxControls, currentSettings);
+  }, [fxControls, currentSettings]);
 
   // Drive the holographic globe from live audio FFT data while playing
   useEffect(() => {
@@ -749,6 +839,7 @@ export default function App() {
       howlRef.current.unload();
       howlRef.current = null;
       analyserRef.current = null;
+      fxNodesRef.current = null;
     };
 
     const connectAnalyser = (sound) => {
@@ -765,8 +856,53 @@ export default function App() {
         analyser.fftSize = 256;
         analyser.smoothingTimeConstant = 0.8;
         const source = audioCtx.createMediaElementSource(audioEl);
-        source.connect(analyser);
+
+        const eqNode = audioCtx.createBiquadFilter();
+        eqNode.type = "peaking";
+        eqNode.frequency.value = 1200;
+        eqNode.Q.value = 0.8;
+
+        const compressor = audioCtx.createDynamicsCompressor();
+        compressor.knee.value = 18;
+
+        const delayNode = audioCtx.createDelay(1.5);
+        const delayFeedbackGain = audioCtx.createGain();
+        const delayWetGain = audioCtx.createGain();
+        delayFeedbackGain.gain.value = 0.05;
+
+        const convolver = audioCtx.createConvolver();
+        convolver.buffer = createImpulseResponse(audioCtx);
+        const reverbWetGain = audioCtx.createGain();
+        const dryGain = audioCtx.createGain();
+
+        source.connect(eqNode);
+        eqNode.connect(compressor);
+
+        compressor.connect(dryGain);
+        dryGain.connect(analyser);
+
+        compressor.connect(convolver);
+        convolver.connect(reverbWetGain);
+        reverbWetGain.connect(analyser);
+
+        compressor.connect(delayNode);
+        delayNode.connect(delayFeedbackGain);
+        delayFeedbackGain.connect(delayNode);
+        delayNode.connect(delayWetGain);
+        delayWetGain.connect(analyser);
+
         analyser.connect(Howler.masterGain || audioCtx.destination);
+
+        fxNodesRef.current = {
+          eqNode,
+          compressor,
+          delayNode,
+          delayFeedbackGain,
+          delayWetGain,
+          reverbWetGain,
+          dryGain
+        };
+        applyFxSettingsToChain(fxControls, currentSettings);
         analyserRef.current = analyser;
         fftRef.current = new Uint8Array(analyser.frequencyBinCount);
         audioEl._saionAnalyserConnected = true;
@@ -897,9 +1033,9 @@ export default function App() {
     vocalPreset
   };
 
-  const generatedPrompt = useMemo(() => buildPrompt(currentSettings, context), [currentSettings, tempo, timeSignature, emotionPreset, vocalPreset]);
-  const generatedNotation = useMemo(() => buildNotation(currentSettings, context), [currentSettings, tempo, timeSignature, emotionPreset, vocalPreset]);
-  const originalNotation = useMemo(() => buildNotation(originalSettings, context), [originalSettings, tempo, timeSignature, emotionPreset, vocalPreset]);
+  const generatedPrompt = useMemo(() => buildPrompt(currentSettings, context, fxControls), [currentSettings, tempo, timeSignature, emotionPreset, vocalPreset, fxControls]);
+  const generatedNotation = useMemo(() => buildNotation(currentSettings, context, fxControls), [currentSettings, tempo, timeSignature, emotionPreset, vocalPreset, fxControls]);
+  const originalNotation = useMemo(() => buildNotation(originalSettings, context, fxControls), [originalSettings, tempo, timeSignature, emotionPreset, vocalPreset, fxControls]);
   const notationWithLocalSettings = useMemo(() => {
     return [`GENERATOR:${generator.toUpperCase()}`, generatedNotation].join("\n");
   }, [generator, generatedNotation]);
@@ -914,7 +1050,9 @@ export default function App() {
       timeSignature,
       emotionPreset,
       vocalPreset,
+      localPreviewOnly,
       activeVersion,
+      fxControls,
       original: originalSettings,
       current: currentSettings
     },
@@ -957,6 +1095,11 @@ export default function App() {
     setTimeSignature(session.settings.timeSignature || "4/4");
     setEmotionPreset(session.settings.emotionPreset || "LONGING");
     setVocalPreset(session.settings.vocalPreset || "SOULFUL");
+    setLocalPreviewOnly(Boolean(session.settings.localPreviewOnly));
+    setFxControls({
+      ...INITIAL_FX_CONTROLS,
+      ...(session.settings.fxControls || {})
+    });
     setVersionA(session.settings.original);
     setVersionB(session.settings.current);
     setActiveVersion("B");
@@ -974,6 +1117,12 @@ export default function App() {
 
   const handleGenerateAudio = async () => {
     if (isGenerating) return;
+
+    if (localPreviewOnly) {
+      setSavedState("LOCAL PREVIEW ONLY");
+      setTransportStatus("LOCAL PREVIEW MODE");
+      return;
+    }
 
     const apiBase = (import.meta.env.VITE_API_BASE_URL || "http://localhost:3000").replace(/\/$/, "");
 
@@ -1019,12 +1168,14 @@ export default function App() {
           payload: {
             prompt: generatedPrompt,
             notation: generatedNotation,
+            effects: { ...fxControls },
             ...sourcePayload,
             metadata: {
               tempo,
               timeSignature,
               emotionPreset,
-              vocalPreset
+              vocalPreset,
+              fxControls: { ...fxControls }
             }
           }
         })
@@ -1328,6 +1479,14 @@ export default function App() {
               </div>
 
               <div className="panel-actions">
+                <label className="local-preview-toggle">
+                  <input
+                    type="checkbox"
+                    checked={localPreviewOnly}
+                    onChange={(e) => setLocalPreviewOnly(e.target.checked)}
+                  />
+                  Local Preview Only (no upload/send)
+                </label>
                 <button onClick={handleGenerateAudio} disabled={isGenerating}>
                   {isGenerating ? "Generating..." : "Generate Audio"}
                 </button>
@@ -1412,6 +1571,36 @@ export default function App() {
                     <option>Wide R&amp;B Stacks</option>
                   </select>
                 </label>
+
+                <h3>Effects Rack</h3>
+                <div className="controls-effects-grid">
+                  {FX_CONTROL_PARAMS.map((param) => {
+                    const value = fxControls[param.key] ?? 0;
+                    return (
+                      <div className="controls-effect-row" key={param.key}>
+                        <span className="controls-effect-label">{param.label}</span>
+                        <input
+                          type="range"
+                          min="0"
+                          max="100"
+                          value={value}
+                          onChange={(e) => handleFxControlChange(param.key, e.target.value)}
+                          className="sub-slider controls-effect-slider"
+                          aria-label={`${param.label} slider`}
+                        />
+                        <input
+                          type="number"
+                          min="0"
+                          max="100"
+                          value={value}
+                          onChange={(e) => handleFxControlChange(param.key, e.target.value)}
+                          className="sub-manual-input controls-effect-input"
+                          aria-label={`${param.label} value`}
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
 
             </div>

@@ -7,7 +7,9 @@
     "dev:gui": "cd gui && npm run dev",
     "dev:pnf": "cd PNF-AIMS/gui && npm run dev",
     "build:gui": "cd gui && npm run build",
-    "build:pnf": "cd PNF-AIMS/gui && npm run build"
+    "build:pnf": "cd PNF-AIMS/gui && npm run build",
+    "test:compat": "node ARLNS/compat_baseline_v1.test.js",
+    "check:src-sync": "diff -rq --exclude MACT6390 src PNF-AIMS/src"
   },
   "devDependencies": {
     "nodemon": "^3.1.14"

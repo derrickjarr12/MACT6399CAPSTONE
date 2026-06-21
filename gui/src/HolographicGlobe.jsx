@@ -51,6 +51,7 @@ function HolographicGlobe({ drive = 0.5, bass = 0.5, treble = 0.5, distortion = 
     const uniforms = {
       uTime: { value: 0 },
       uDrive: { value: driveRef.current },
+      uDistortion: { value: distortionRef.current },
       uGlow: { value: new THREE.Color("#6ce8ff") },
       uGlow2: { value: new THREE.Color("#8f7bff") },
       uGlow3: { value: new THREE.Color("#ff7fd3") }
@@ -65,6 +66,7 @@ function HolographicGlobe({ drive = 0.5, bass = 0.5, treble = 0.5, distortion = 
         varying vec2 vUv;
         uniform float uTime;
         uniform float uDrive;
+        uniform float uDistortion;
 
         float hash(vec3 p) {
           p = fract(p * 0.3183099 + vec3(0.1, 0.2, 0.3));
@@ -102,8 +104,11 @@ function HolographicGlobe({ drive = 0.5, bass = 0.5, treble = 0.5, distortion = 
           float t = uTime * 0.55;
           float warpA = noise(normal * 2.6 + vec3(t, -t * 0.7, t * 0.4));
           float warpB = noise(position * 1.8 + vec3(-t * 0.4, t * 0.8, -t));
-          float ripple = sin((position.y + position.x) * 5.0 + uTime * 2.2) * 0.03;
-          float distortion = mix(0.05, 0.16, uDrive) * (warpA * 0.7 + warpB * 0.5 + ripple);
+          float rippleWave = sin((position.y * 9.0 + position.x * 7.5) + uTime * (2.2 + uDistortion * 4.5));
+          float rippleRing = sin(length(position.xy) * 22.0 - uTime * (1.6 + uDistortion * 3.8));
+          float ripple = (rippleWave * 0.02 + rippleRing * 0.016) * (0.45 + uDistortion * 1.35);
+          float distortion = mix(0.05, 0.16, uDrive) * (warpA * 0.7 + warpB * 0.5);
+          distortion = distortion * (0.85 + uDistortion * 0.9) + ripple;
 
           vec3 displaced = position + normal * distortion;
           vec4 worldPosition = modelMatrix * vec4(displaced, 1.0);
@@ -118,6 +123,7 @@ function HolographicGlobe({ drive = 0.5, bass = 0.5, treble = 0.5, distortion = 
         varying vec2 vUv;
         uniform float uTime;
         uniform float uDrive;
+        uniform float uDistortion;
         uniform vec3 uGlow;
         uniform vec3 uGlow2;
         uniform vec3 uGlow3;
@@ -131,6 +137,7 @@ function HolographicGlobe({ drive = 0.5, bass = 0.5, treble = 0.5, distortion = 
           float wave2 = cos(vUv.x * 20.0 - uTime * 1.1 + normal.y * 4.0);
           float swirl = sin((vUv.x + vUv.y) * 16.0 - uTime * 1.8);
           float band = wave1 * 0.35 + wave2 * 0.35 + swirl * 0.3;
+          band += sin(vUv.y * 42.0 - uTime * (3.2 + uDistortion * 5.0)) * (0.08 + uDistortion * 0.2);
 
           vec3 deepCore = vec3(0.02, 0.035, 0.07);
           vec3 color = deepCore;
@@ -356,6 +363,7 @@ function HolographicGlobe({ drive = 0.5, bass = 0.5, treble = 0.5, distortion = 
 
       uniforms.uTime.value = elapsed;
       uniforms.uDrive.value = currentDrive;
+      uniforms.uDistortion.value = currentDistortion;
       coreUniforms.uTime.value = elapsed;
       coreUniforms.uBass.value = currentBass;
       coreUniforms.uTreble.value = currentTreble;
@@ -364,11 +372,11 @@ function HolographicGlobe({ drive = 0.5, bass = 0.5, treble = 0.5, distortion = 
 
       group.rotation.y = elapsed * (0.18 + currentDrive * 0.2);
       group.rotation.x = Math.sin(elapsed * 0.7) * 0.16;
-      globe.rotation.z = Math.sin(elapsed * 0.9) * 0.08;
+      globe.rotation.z = Math.sin(elapsed * (0.9 + currentDistortion * 1.6)) * (0.08 + currentDistortion * 0.08);
       core.rotation.y = -elapsed * (0.22 + currentTreble * 0.52);
       core.rotation.x = Math.sin(elapsed * 0.78) * (0.1 + currentBass * 0.08);
       core.scale.setScalar(0.985 + Math.sin(elapsed * (1.35 + currentBass * 0.9)) * (0.012 + currentDistortion * 0.018));
-      globe.scale.setScalar(1 + Math.sin(elapsed * 2.1) * (0.018 + currentDrive * 0.022));
+      globe.scale.setScalar(1 + Math.sin(elapsed * (2.1 + currentDistortion * 2.8)) * (0.018 + currentDrive * 0.022 + currentDistortion * 0.03));
       shell.scale.setScalar(1.005 + Math.sin(elapsed * 1.7) * 0.01);
       glow.scale.setScalar(1.0 + Math.sin(elapsed * 1.1) * 0.02);
 
