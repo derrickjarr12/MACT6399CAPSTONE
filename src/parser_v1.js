@@ -52,7 +52,7 @@ function parse(text) {
       tokens: tokens,
       phrases: groupIntoPhrases(tokens)
     };
-    
+      
     if (currentSection) {
       currentSection.lines.push(lineData);
     } else {

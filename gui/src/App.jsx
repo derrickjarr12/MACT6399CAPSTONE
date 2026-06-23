@@ -147,6 +147,11 @@ function App() {
   const [selectedEmotionKey, setSelectedEmotionKey] = useState("vulnerability");
   const [selectedMusicalityKey, setSelectedMusicalityKey] = useState("timingFeel");
   const [isMusicalityLinked, setIsMusicalityLinked] = useState(true);
+  const [chaosSensitivity, setChaosSensitivity] = useState(67);
+  const [reformSpeed, setReformSpeed] = useState(20);
+  const [flareIntensity, setFlareIntensity] = useState(72);
+  const [colorSpeed, setColorSpeed] = useState(14);
+  const [insideView, setInsideView] = useState(false);
 
   const notation = useMemo(() => buildNotation(settings), [settings]);
   const prompt = useMemo(() => buildPrompt(settings), [settings]);
@@ -180,6 +185,31 @@ function App() {
     const ornamentation = settings.musicality.ornamentation / 100;
 
     return Math.min(1, intensity * 0.35 + tension * 0.25 + dynamics * 0.25 + ornamentation * 0.15);
+  }, [settings]);
+
+  const globeBass = useMemo(() => {
+    const intensity = settings.emotion.intensity / 100;
+    const dynamics = settings.musicality.dynamics / 100;
+    const tension = settings.emotion.tension / 100;
+
+    return Math.min(1, intensity * 0.4 + dynamics * 0.35 + tension * 0.25);
+  }, [settings]);
+
+  const globeTreble = useMemo(() => {
+    const syncopation = settings.musicality.syncopation / 100;
+    const ornamentation = settings.musicality.ornamentation / 100;
+    const confidence = settings.emotion.confidence / 100;
+
+    return Math.min(1, syncopation * 0.45 + ornamentation * 0.4 + confidence * 0.15);
+  }, [settings]);
+
+  const globeDistortion = useMemo(() => {
+    const tension = settings.emotion.tension / 100;
+    const intensity = settings.emotion.intensity / 100;
+    const syncopation = settings.musicality.syncopation / 100;
+    const dynamics = settings.musicality.dynamics / 100;
+
+    return Math.min(1, tension * 0.35 + intensity * 0.25 + syncopation * 0.2 + dynamics * 0.2);
   }, [settings]);
 
   function updateEmotion(key, value) {
@@ -379,7 +409,82 @@ function App() {
         <aside className="card orb-card orb-panel">
           <h2 className="section-title">Holographic Core</h2>
           <div className="holo-stage" aria-hidden="true">
-            <HolographicGlobe drive={globeDrive} />
+            <HolographicGlobe
+              drive={globeDrive}
+              bass={globeBass}
+              treble={globeTreble}
+              distortion={globeDistortion}
+              chaosSensitivity={chaosSensitivity / 100}
+              reformSpeed={0.5 + (reformSpeed / 100) * 4.5}
+              flareIntensity={flareIntensity / 100}
+              colorSpeed={colorSpeed / 100 * 2.0}
+              insideView={insideView}
+            />
+          </div>
+          <button
+            className={insideView ? 'preview-toggle is-active' : 'preview-toggle'}
+            style={{ alignSelf: 'center', marginTop: '0.6rem' }}
+            onClick={() => setInsideView((v) => !v)}
+          >
+            {insideView ? 'Exit Interior' : 'View Inside'}
+          </button>
+          <div className="globe-controls">
+            <div className="globe-control-row">
+              <div className="globe-control-label">
+                <span>Chaos Sensitivity</span>
+                <span>{chaosSensitivity}%</span>
+              </div>
+              <input
+                type="range"
+                className="glass-range"
+                min="20"
+                max="90"
+                value={chaosSensitivity}
+                onChange={(e) => setChaosSensitivity(Number(e.target.value))}
+              />
+            </div>
+            <div className="globe-control-row">
+              <div className="globe-control-label">
+                <span>Reform Speed</span>
+                <span>{Math.round(0.5 + (reformSpeed / 100) * 4.5 * 10) / 10}x</span>
+              </div>
+              <input
+                type="range"
+                className="glass-range"
+                min="5"
+                max="100"
+                value={reformSpeed}
+                onChange={(e) => setReformSpeed(Number(e.target.value))}
+              />
+            </div>
+            <div className="globe-control-row">
+              <div className="globe-control-label">
+                <span>Flare Intensity</span>
+                <span>{flareIntensity}%</span>
+              </div>
+              <input
+                type="range"
+                className="glass-range"
+                min="0"
+                max="100"
+                value={flareIntensity}
+                onChange={(e) => setFlareIntensity(Number(e.target.value))}
+              />
+            </div>
+            <div className="globe-control-row">
+              <div className="globe-control-label">
+                <span>Color Speed</span>
+                <span>{(colorSpeed / 100 * 2.0).toFixed(2)}x</span>
+              </div>
+              <input
+                type="range"
+                className="glass-range"
+                min="0"
+                max="100"
+                value={colorSpeed}
+                onChange={(e) => setColorSpeed(Number(e.target.value))}
+              />
+            </div>
           </div>
           <div className="orb-readout">
             <p className="label">Active Version</p>

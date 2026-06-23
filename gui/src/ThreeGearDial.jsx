@@ -149,30 +149,30 @@ export default function ThreeGearDial({ value = 50, variant = "emotion", onChang
         {/* SVG Gradients and Filters */}
         <defs>
           <radialGradient id="dialFace" cx="50%" cy="40%" r="70%">
-            <stop offset="0%" stop-color="#fff" stop-opacity="0.18" />
-            <stop offset="60%" stop-color="#222" stop-opacity="0.95" />
-            <stop offset="100%" stop-color="#111" stop-opacity="1" />
+            <stop offset="0%" stopColor="#fff" stopOpacity="0.18" />
+            <stop offset="60%" stopColor="#222" stopOpacity="0.95" />
+            <stop offset="100%" stopColor="#111" stopOpacity="1" />
           </radialGradient>
           <linearGradient id="dialEdge" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stop-color="#fff" stop-opacity="0.5" />
-            <stop offset="100%" stop-color={accent} stop-opacity="1" />
+            <stop offset="0%" stopColor="#fff" stopOpacity="0.5" />
+            <stop offset="100%" stopColor={accent} stopOpacity="1" />
           </linearGradient>
           <linearGradient id="accentRing" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0%" stop-color={accentSoft} />
-            <stop offset="100%" stop-color={accent} />
+            <stop offset="0%" stopColor={accentSoft} />
+            <stop offset="100%" stopColor={accent} />
           </linearGradient>
           <radialGradient id="capGrad" cx="50%" cy="40%" r="70%">
-            <stop offset="0%" stop-color="#fff" stop-opacity="0.7" />
-            <stop offset="80%" stop-color={accentSoft} stop-opacity="1" />
-            <stop offset="100%" stop-color={accent} stop-opacity="1" />
+            <stop offset="0%" stopColor="#fff" stopOpacity="0.7" />
+            <stop offset="80%" stopColor={accentSoft} stopOpacity="1" />
+            <stop offset="100%" stopColor={accent} stopOpacity="1" />
           </radialGradient>
           <linearGradient id="needleGrad" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stop-color="#fff" stop-opacity="0.7" />
-            <stop offset="100%" stop-color={accent} stop-opacity="1" />
+            <stop offset="0%" stopColor="#fff" stopOpacity="0.7" />
+            <stop offset="100%" stopColor={accent} stopOpacity="1" />
           </linearGradient>
           <radialGradient id="highlight" cx="50%" cy="50%" r="50%">
-            <stop offset="0%" stop-color="#fff" stop-opacity="0.8" />
-            <stop offset="100%" stop-color="#fff" stop-opacity="0" />
+            <stop offset="0%" stopColor="#fff" stopOpacity="0.8" />
+            <stop offset="100%" stopColor="#fff" stopOpacity="0" />
           </radialGradient>
           <filter id="needleShadow" x="0" y="0" width="300" height="300">
             <feDropShadow dx="0" dy="2" stdDeviation="2" floodColor={accentSoft} />
