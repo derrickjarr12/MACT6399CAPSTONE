@@ -208,6 +208,20 @@ function createImpulseResponse(audioCtx, seconds = 1.8, decay = 2.4) {
   return impulse;
 }
 
+function createRaspCurve(amount = 0) {
+  const clamped = Math.max(0, Math.min(1, amount));
+  const drive = 1 + clamped * 14;
+  const samples = 2048;
+  const curve = new Float32Array(samples);
+
+  for (let i = 0; i < samples; i += 1) {
+    const x = (i * 2) / (samples - 1) - 1;
+    curve[i] = Math.tanh(x * drive) / Math.tanh(drive);
+  }
+
+  return curve;
+}
+
 function readFileAsDataUrl(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -217,7 +231,36 @@ function readFileAsDataUrl(file) {
   });
 }
 
-function MiniDial({ value, label, variant = "emotion", onChange }) {
+function isAudioDataUrl(value) {
+  return typeof value === "string" && value.startsWith("data:audio/");
+}
+
+function dataUrlToObjectUrl(dataUrl) {
+  if (!isAudioDataUrl(dataUrl)) return "";
+  try {
+    const [header, payload] = dataUrl.split(",", 2);
+    if (!header || !payload) return "";
+    const mimeMatch = header.match(/^data:([^;,]+)(;base64)?/i);
+    const mimeType = mimeMatch?.[1] || "audio/wav";
+
+    let bytes;
+    if (header.includes(";base64")) {
+      const binary = atob(payload);
+      bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i += 1) {
+        bytes[i] = binary.charCodeAt(i);
+      }
+    } else {
+      bytes = new TextEncoder().encode(decodeURIComponent(payload));
+    }
+
+    return URL.createObjectURL(new Blob([bytes], { type: mimeType }));
+  } catch (_) {
+    return "";
+  }
+}
+
+function MiniDial({ value, label, variant = "emotion", onChange, step = 1 }) {
   const isVocal = variant === "vocal";
   const currentValue = value || 0;
   const activePointerIdRef = useRef(null);
@@ -235,7 +278,9 @@ function MiniDial({ value, label, variant = "emotion", onChange }) {
     const centerX = rect.left + rect.width / 2;
     const centerY = rect.top + rect.height / 2;
     const angle = (Math.atan2(event.clientY - centerY, event.clientX - centerX) * 180) / Math.PI + 90;
-    onChange(angleToDialValue(angle));
+    const rawValue = angleToDialValue(angle);
+    const snappedValue = Math.round(rawValue / step) * step;
+    onChange(Math.max(0, Math.min(100, Number(snappedValue.toFixed(2)))));
   };
 
   const handlePointerDown = (event) => {
@@ -257,12 +302,12 @@ function MiniDial({ value, label, variant = "emotion", onChange }) {
   const handleKeyDown = (event) => {
     if (event.key === "ArrowLeft" || event.key === "ArrowDown") {
       event.preventDefault();
-      onChange(Math.max(0, currentValue - 1));
+      onChange(Math.max(0, Number((currentValue - step).toFixed(2))));
     }
 
     if (event.key === "ArrowRight" || event.key === "ArrowUp") {
       event.preventDefault();
-      onChange(Math.min(100, currentValue + 1));
+      onChange(Math.min(100, Number((currentValue + step).toFixed(2))));
     }
 
     if (event.key === "Home") {
@@ -467,9 +512,16 @@ export default function App() {
   const analyserRef = useRef(null);
   const fxNodesRef = useRef(null);
   const fftRef = useRef(new Uint8Array(128));
+  const audioEnvelopeRef = useRef({ drive: 0.3, bass: 0.3, treble: 0.3, distortion: 0.3 });
+  const prevSpectrumRef = useRef(new Uint8Array(128));
   const globeRafRef = useRef(null);
   const [waveformDragOver, setWaveformDragOver] = useState(false);
   const [globeAudio, setGlobeAudio] = useState({ drive: 0.3, bass: 0.3, treble: 0.3, distortion: 0.3 });
+  const [insideView, setInsideView] = useState(false);
+  const [chaosSensitivity, setChaosSensitivity] = useState(67);
+  const [reformSpeed, setReformSpeed] = useState(20);
+  const [flareIntensity, setFlareIntensity] = useState(72);
+  const [colorSpeed, setColorSpeed] = useState(14);
   const currentSettings = settings;
 
   const audioTracks = useMemo(() => {
@@ -547,6 +599,17 @@ export default function App() {
     if (!fxNodes) return;
 
     const clampUnit = (value) => Math.max(0, Math.min(1, value));
+    const audioCtx = Howler.ctx;
+    const now = audioCtx?.currentTime ?? 0;
+    const setParam = (audioParam, targetValue, glide = 0.02) => {
+      if (!audioParam) return;
+      if (audioCtx && typeof audioParam.setTargetAtTime === "function") {
+        audioParam.cancelScheduledValues(now);
+        audioParam.setTargetAtTime(targetValue, now, glide);
+        return;
+      }
+      audioParam.value = targetValue;
+    };
 
     const reverb = (nextFxControls.reverb ?? 0) / 100;
     const eq = (nextFxControls.eq ?? 0) / 100;
@@ -555,29 +618,83 @@ export default function App() {
 
     const intensity = ((nextSettings?.emotion?.intensity ?? 50) / 100);
     const vulnerability = ((nextSettings?.emotion?.vulnerability ?? 50) / 100);
+    const confidence = ((nextSettings?.emotion?.confidence ?? 50) / 100);
     const tension = ((nextSettings?.emotion?.tension ?? 50) / 100);
+    const emotionWarmth = ((nextSettings?.emotion?.warmth ?? 50) / 100);
+    const emotionRelease = ((nextSettings?.emotion?.release ?? 50) / 100);
     const delivery = (((nextSettings?.vocal?.delivery ?? nextSettings?.vocal?.texture ?? 50)) / 100);
     const texture = ((nextSettings?.vocal?.texture ?? 50) / 100);
+    const performanceState = ((nextSettings?.vocal?.performanceState ?? 50) / 100);
+    const breath = ((nextSettings?.vocal?.breath ?? 50) / 100);
     const rasp = ((nextSettings?.vocal?.rasp ?? 0) / 100);
+    const runs = ((nextSettings?.vocal?.runs ?? 50) / 100);
     const timing = ((nextSettings?.vocal?.timing ?? 50) / 100);
+    const vocalWarmth = ((nextSettings?.vocal?.warmth ?? 50) / 100);
+    const vocalRelease = ((nextSettings?.vocal?.release ?? 50) / 100);
 
-    const eqBlend = clampUnit(eq * 0.7 + delivery * 0.2 + texture * 0.1);
-    const compressionBlend = clampUnit(compression * 0.68 + intensity * 0.22 + tension * 0.1);
-    const reverbBlend = clampUnit(reverb * 0.74 + vulnerability * 0.22 + (1 - tension) * 0.04);
-    const delayBlend = clampUnit(delay * 0.7 + (1 - timing) * 0.2 + rasp * 0.1);
+    const emotionDrive = clampUnit(
+      intensity * 0.28 +
+      tension * 0.2 +
+      vulnerability * 0.18 +
+      confidence * 0.12 +
+      emotionWarmth * 0.12 +
+      emotionRelease * 0.1
+    );
+    const emotionLift = clampUnit(emotionDrive * 0.58 + emotionWarmth * 0.18 + emotionRelease * 0.18);
+    const vocalDrive = clampUnit(
+      delivery * 0.24 +
+      texture * 0.16 +
+      performanceState * 0.12 +
+      breath * 0.1 +
+      rasp * 0.14 +
+      runs * 0.08 +
+      (1 - timing) * 0.08 +
+      vocalWarmth * 0.05 +
+      vocalRelease * 0.03
+    );
 
-    fxNodes.eqNode.gain.value = -14 + eqBlend * 28;
-    fxNodes.compressor.threshold.value = -52 + compressionBlend * 44;
-    fxNodes.compressor.ratio.value = 1.2 + compressionBlend * 10.8;
-    fxNodes.compressor.attack.value = 0.002 + (1 - compressionBlend) * 0.058;
-    fxNodes.compressor.release.value = 0.08 + compressionBlend * 0.42;
+    const vocalAir = clampUnit(breath * 0.65 + delivery * 0.14 + (1 - compression) * 0.11);
+    const vocalWarmthTone = clampUnit(vocalWarmth * 0.68 + vocalRelease * 0.14 + (1 - rasp) * 0.1);
+    const vocalRaspDrive = clampUnit(rasp * 0.74 + texture * 0.08 + (1 - vocalWarmth) * 0.06);
 
-    fxNodes.reverbWetGain.gain.value = reverbBlend * 0.85;
-    fxNodes.dryGain.gain.value = 1 - reverbBlend * 0.35;
+    const eqBlend = clampUnit(eq * 0.3 + vocalDrive * 0.38 + emotionLift * 0.24);
+    const compressionBlend = clampUnit(compression * 0.22 + emotionDrive * 0.3 + performanceState * 0.16 + delivery * 0.1 + (1 - vocalRelease) * 0.08);
+    const reverbBlend = clampUnit(reverb * 0.18 + vulnerability * 0.26 + emotionRelease * 0.16 + breath * 0.16 + (1 - tension) * 0.1);
+    const delayBlend = clampUnit(delay * 0.14 + rasp * 0.24 + runs * 0.2 + (1 - timing) * 0.12 + (1 - vocalRelease) * 0.08 + intensity * 0.08);
 
-    fxNodes.delayNode.delayTime.value = 0.02 + delayBlend * 0.58;
-    fxNodes.delayFeedbackGain.gain.value = 0.05 + delayBlend * 0.75;
-    fxNodes.delayWetGain.gain.value = delayBlend * 0.7;
+    const harmony = ((nextSettings?.harmony?.harmony ?? 50) / 100) || ((nextSettings?.core?.harmony ?? 50) / 100);
+    const rhythm = ((nextSettings?.rhythm?.rhythm ?? 50) / 100) || ((nextSettings?.core?.rhythm ?? 50) / 100);
+    const dynamics = ((nextSettings?.dynamics?.dynamics ?? 50) / 100) || ((nextSettings?.core?.dynamics ?? 50) / 100);
+
+    const harmonyTone = clampUnit(harmony * 0.6 + emotionWarmth * 0.2 + (1 - rasp) * 0.2);
+    const rhythmTiming = clampUnit(rhythm * 0.5 + timing * 0.25 + (1 - tension) * 0.25);
+    const dynamicsRange = clampUnit(dynamics * 0.6 + intensity * 0.18 + performanceState * 0.14 + (1 - vocalRelease) * 0.08);
+
+    const eqBlendUpdated = clampUnit(eqBlend * 0.65 + harmonyTone * 0.35);
+    const reverbBlendUpdated = reverbBlend;
+    const delayBlendUpdated = delayBlend;
+    const compressionBlendUpdated = clampUnit(compressionBlend * 0.6 + dynamicsRange * 0.4);
+
+    setParam(fxNodes.emotionNode.gain, -7 + emotionLift * 14, 0.015);
+    setParam(fxNodes.emotionNode.frequency, 560 + vulnerability * 820 + emotionRelease * 420, 0.015);
+    setParam(fxNodes.emotionNode.Q, 0.8 + tension * 1.8, 0.015);
+    setParam(fxNodes.eqNode.gain, -10 + eqBlendUpdated * 18, 0.015);
+    setParam(fxNodes.warmthNode.gain, -4 + vocalWarmthTone * 8, 0.015);
+    setParam(fxNodes.airNode.gain, -2.5 + vocalAir * 10, 0.015);
+    if (fxNodes.raspNode) {
+      fxNodes.raspNode.curve = createRaspCurve(vocalRaspDrive);
+    }
+    setParam(fxNodes.compressor.threshold, -46 + compressionBlendUpdated * 32, 0.025);
+    setParam(fxNodes.compressor.ratio, 1.6 + compressionBlendUpdated * 10.8, 0.025);
+    setParam(fxNodes.compressor.attack, 0.025 + (1 - rhythmTiming) * 0.03, 0.025);
+    setParam(fxNodes.compressor.release, 0.08 + (1 - rhythmTiming) * 0.4, 0.025);
+
+    setParam(fxNodes.reverbWetGain.gain, 0.1 + reverbBlendUpdated * 0.84, 0.02);
+    setParam(fxNodes.dryGain.gain, 1 - reverbBlendUpdated * 0.64, 0.02);
+
+    setParam(fxNodes.delayNode.delayTime, 0.03 + delayBlendUpdated * 0.54, 0.02);
+    setParam(fxNodes.delayFeedbackGain.gain, 0.08 + delayBlendUpdated * 0.68, 0.02);
+    setParam(fxNodes.delayWetGain.gain, 0.05 + delayBlendUpdated * 0.74, 0.02);
   };
 
   const analysisData = useMemo(() => ({
@@ -696,6 +813,8 @@ export default function App() {
         cancelAnimationFrame(globeRafRef.current);
         globeRafRef.current = null;
       }
+      audioEnvelopeRef.current = { drive: 0.3, bass: 0.3, treble: 0.3, distortion: 0.3 };
+      prevSpectrumRef.current = new Uint8Array(128);
       return;
     }
 
@@ -703,30 +822,85 @@ export default function App() {
       const analyser = analyserRef.current;
       if (analyser) {
         const data = fftRef.current;
+        const prevSpectrum = prevSpectrumRef.current;
         analyser.getByteFrequencyData(data);
         const binCount = data.length; // 128 bins for fftSize 256
 
-        // Bass: bins 0–5 (~0–860 Hz) — kick, sub-bass
-        let bassSum = 0;
-        for (let i = 0; i < 6; i++) bassSum += data[i];
-        const bass = Math.min(1, bassSum / (6 * 200));
+        const bandEnergy = (from, to) => {
+          const start = Math.max(0, from);
+          const end = Math.min(binCount - 1, to);
+          if (end < start) return 0;
+          let sum = 0;
+          for (let i = start; i <= end; i += 1) sum += data[i] || 0;
+          return Math.min(1, sum / ((end - start + 1) * 255));
+        };
 
-        // Treble: bins 60–127 (~10 kHz–22 kHz) — hiss, air
-        let trebleSum = 0;
-        for (let i = 60; i < binCount; i++) trebleSum += data[i];
-        const treble = Math.min(1, trebleSum / ((binCount - 60) * 140));
+        // Full-spectrum bands so melody, harmony, cymbals, and presence all contribute.
+        const subRaw = bandEnergy(0, 3);
+        const bassRaw = bandEnergy(4, 12);
+        const lowMidRaw = bandEnergy(13, 28);
+        const midRaw = bandEnergy(29, 55);
+        const highMidRaw = bandEnergy(56, 88);
+        const airRaw = bandEnergy(89, binCount - 1);
 
-        // Mids: bins 10–40 (~1.7 kHz–7 kHz) — vocals, presence → distortion shape
-        let midSum = 0;
-        for (let i = 10; i < 40; i++) midSum += data[i];
-        const distortion = Math.min(1, midSum / (30 * 180));
-
-        // Overall drive: RMS across all bins
         let rms = 0;
-        for (let i = 0; i < binCount; i++) rms += data[i] * data[i];
-        const drive = Math.min(1, Math.sqrt(rms / binCount) / 160);
+        let magnitude = 0;
+        let centroidWeighted = 0;
+        let fluxSum = 0;
+        let roughnessSum = 0;
+        let peak = 0;
+        for (let i = 0; i < binCount; i += 1) rms += (data[i] || 0) * (data[i] || 0);
+        for (let i = 0; i < binCount; i += 1) {
+          const current = (data[i] || 0) / 255;
+          const prev = (prevSpectrum[i] || 0) / 255;
+          peak = Math.max(peak, current);
+          magnitude += current;
+          centroidWeighted += current * i;
+          fluxSum += Math.max(0, current - prev);
+          if (i > 0) {
+            const left = (data[i - 1] || 0) / 255;
+            roughnessSum += Math.abs(current - left);
+          }
+          prevSpectrum[i] = data[i] || 0;
+        }
 
-        setGlobeAudio({ drive, bass, treble, distortion });
+        const rmsRaw = Math.min(1, Math.sqrt(rms / binCount) / 255);
+        const centroidRaw = magnitude > 0 ? centroidWeighted / (magnitude * (binCount - 1)) : 0;
+        const fluxRaw = Math.min(1, fluxSum / binCount);
+        const roughnessRaw = Math.min(1, roughnessSum / Math.max(1, binCount - 1));
+        const dynamicRaw = Math.min(1, Math.max(0, peak - rmsRaw));
+
+        const prev = audioEnvelopeRef.current;
+        const lowBandRaw = subRaw * 0.45 + bassRaw * 0.55;
+        const pulseRaw = Math.max(0, lowBandRaw - prev.bass * 0.9);
+        const transientRaw = Math.min(1, pulseRaw * 2.4 + fluxRaw * 0.8 + dynamicRaw * 0.4);
+
+        const bassTarget = Math.min(1, lowBandRaw * 1.6 + transientRaw * 0.42 + lowMidRaw * 0.22);
+        const trebleTarget = Math.min(1, highMidRaw * 1.25 + airRaw * 1.45 + centroidRaw * 0.35);
+        const distortionTarget = Math.min(1, midRaw * 1.25 + roughnessRaw * 0.7 + fluxRaw * 0.45 + transientRaw * 0.2);
+        const driveTarget = Math.min(
+          1,
+          rmsRaw * 1.25 +
+          transientRaw * 0.3 +
+          (lowMidRaw + midRaw + highMidRaw) * 0.22 +
+          centroidRaw * 0.18
+        );
+
+        const smooth = (current, target, attack, release) => (
+          target > current
+            ? current + (target - current) * attack
+            : current + (target - current) * release
+        );
+
+        const next = {
+          drive: smooth(prev.drive, driveTarget, 0.38, 0.12),
+          bass: smooth(prev.bass, bassTarget, 0.45, 0.12),
+          treble: smooth(prev.treble, trebleTarget, 0.34, 0.11),
+          distortion: smooth(prev.distortion, distortionTarget, 0.36, 0.12)
+        };
+
+        audioEnvelopeRef.current = next;
+        setGlobeAudio(next);
       }
       globeRafRef.current = requestAnimationFrame(tick);
     };
@@ -854,8 +1028,13 @@ export default function App() {
         if (audioCtx.state === "suspended") audioCtx.resume();
         const analyser = audioCtx.createAnalyser();
         analyser.fftSize = 256;
-        analyser.smoothingTimeConstant = 0.8;
+        analyser.smoothingTimeConstant = 0.42;
         const source = audioCtx.createMediaElementSource(audioEl);
+
+        const emotionNode = audioCtx.createBiquadFilter();
+        emotionNode.type = "peaking";
+        emotionNode.frequency.value = 900;
+        emotionNode.Q.value = 0.9;
 
         const eqNode = audioCtx.createBiquadFilter();
         eqNode.type = "peaking";
@@ -864,6 +1043,18 @@ export default function App() {
 
         const compressor = audioCtx.createDynamicsCompressor();
         compressor.knee.value = 18;
+
+        const warmthNode = audioCtx.createBiquadFilter();
+        warmthNode.type = "lowshelf";
+        warmthNode.frequency.value = 260;
+
+        const airNode = audioCtx.createBiquadFilter();
+        airNode.type = "highshelf";
+        airNode.frequency.value = 5200;
+
+        const raspNode = audioCtx.createWaveShaper();
+        raspNode.oversample = "4x";
+        raspNode.curve = createRaspCurve(0);
 
         const delayNode = audioCtx.createDelay(1.5);
         const delayFeedbackGain = audioCtx.createGain();
@@ -875,8 +1066,12 @@ export default function App() {
         const reverbWetGain = audioCtx.createGain();
         const dryGain = audioCtx.createGain();
 
-        source.connect(eqNode);
-        eqNode.connect(compressor);
+        source.connect(emotionNode);
+        emotionNode.connect(eqNode);
+        eqNode.connect(warmthNode);
+        warmthNode.connect(airNode);
+        airNode.connect(raspNode);
+        raspNode.connect(compressor);
 
         compressor.connect(dryGain);
         dryGain.connect(analyser);
@@ -894,7 +1089,11 @@ export default function App() {
         analyser.connect(Howler.masterGain || audioCtx.destination);
 
         fxNodesRef.current = {
+          emotionNode,
           eqNode,
+          warmthNode,
+          airNode,
+          raspNode,
           compressor,
           delayNode,
           delayFeedbackGain,
@@ -927,8 +1126,12 @@ export default function App() {
       const sound = new Howl({
         src: [track.url],
         ...(track.format ? { format: [track.format] } : {}),
+        preload: true,
         html5: true,
         volume: volume / 100,
+        onload: () => {
+          setTransportStatus(`READY ${track.label}`);
+        },
         onplay: () => {
           setIsPlaying(true);
           setTransportStatus(`PLAYING ${track.label}`);
@@ -950,7 +1153,10 @@ export default function App() {
         },
         onplayerror: () => {
           setIsPlaying(false);
-          setTransportStatus("PLAYBACK BLOCKED");
+          setTransportStatus("PLAYBACK BLOCKED — RETRYING");
+          sound.once("unlock", () => {
+            sound.play();
+          });
         }
       });
 
@@ -960,9 +1166,10 @@ export default function App() {
       howlRef.current = sound;
 
       if (autoplay) {
+        setTransportStatus(`LOADING ${track.label}`);
         sound.play();
       } else {
-        setTransportStatus(`READY ${track.label}`);
+        setTransportStatus(`LOADING ${track.label}`);
       }
     };
 
@@ -970,6 +1177,13 @@ export default function App() {
       if (!audioTracks.length) {
         setTransportStatus("NO AUDIO URL");
         return;
+      }
+
+      if (Howler.ctx?.state === "suspended") {
+        void Howler.ctx.resume();
+      }
+      if (Howler._muted) {
+        Howler.mute(false);
       }
 
       if (!howlRef.current) {
@@ -1057,6 +1271,9 @@ export default function App() {
       current: currentSettings
     },
     beforeAudio,
+    beforeAudioDataUrl,
+    beforeAudioFileName,
+    beforeAudioFormat,
     afterAudio
   });
 
@@ -1085,17 +1302,41 @@ export default function App() {
 
     setSessionTitle(session.title || "Song Idea 1");
     setOriginalPrompt(session.originalPrompt || "");
-    setBeforeAudio(session.beforeAudio || "");
+    const restoredBeforeAudio = (() => {
+      if (session.beforeAudio && session.beforeAudio.startsWith("blob:") && session.beforeAudioDataUrl) {
+        return session.beforeAudioDataUrl;
+      }
+      return session.beforeAudio || session.beforeAudioDataUrl || "";
+    })();
+
+    const previousBeforeLocalUrl = localAudioUrlsRef.current.before;
+    if (previousBeforeLocalUrl) {
+      URL.revokeObjectURL(previousBeforeLocalUrl);
+      localAudioUrlsRef.current.before = "";
+    }
+
+    const restoredBeforeObjectUrl = dataUrlToObjectUrl(restoredBeforeAudio);
+    if (restoredBeforeObjectUrl) {
+      localAudioUrlsRef.current.before = restoredBeforeObjectUrl;
+    }
+
+    setBeforeAudio(restoredBeforeObjectUrl || restoredBeforeAudio);
     setAfterAudio(session.afterAudio || "");
-    setBeforeAudioFormat("");
+    setBeforeAudioDataUrl(
+      session.beforeAudioDataUrl ||
+      (isAudioDataUrl(restoredBeforeAudio) ? restoredBeforeAudio : "")
+    );
+    setBeforeAudioFileName(session.beforeAudioFileName || "");
+    setBeforeAudioFormat(session.beforeAudioFormat || "");
     setAfterAudioFormat("");
-    setBeforeAudioFileName("");
     setAfterAudioFileName("");
     setTempo(session.settings.tempo || 120);
     setTimeSignature(session.settings.timeSignature || "4/4");
     setEmotionPreset(session.settings.emotionPreset || "LONGING");
     setVocalPreset(session.settings.vocalPreset || "SOULFUL");
-    setLocalPreviewOnly(Boolean(session.settings.localPreviewOnly));
+    if (typeof session.settings.localPreviewOnly === "boolean") {
+      setLocalPreviewOnly(session.settings.localPreviewOnly);
+    }
     setFxControls({
       ...INITIAL_FX_CONTROLS,
       ...(session.settings.fxControls || {})
@@ -1132,8 +1373,12 @@ export default function App() {
       setSavedState("GENERATING AUDIO");
 
       const hasSourceAudio = Boolean(beforeAudio.trim());
-      const hasSourceAudioUrl = hasSourceAudio && !beforeAudio.startsWith("blob:");
-      const hasSourceAudioData = hasSourceAudio && beforeAudio.startsWith("blob:") && Boolean(beforeAudioDataUrl);
+      const sourceAudioValue = beforeAudio.trim();
+      const sourceAudioIsBlob = sourceAudioValue.startsWith("blob:");
+      const sourceAudioIsDataUrl = isAudioDataUrl(sourceAudioValue);
+      const sourceAudioData = beforeAudioDataUrl || (sourceAudioIsDataUrl ? sourceAudioValue : "");
+      const hasSourceAudioUrl = hasSourceAudio && !sourceAudioIsBlob && !sourceAudioIsDataUrl;
+      const hasSourceAudioData = hasSourceAudio && (sourceAudioIsBlob || sourceAudioIsDataUrl) && Boolean(sourceAudioData);
 
       if (hasSourceAudio && !hasSourceAudioUrl && !hasSourceAudioData) {
         throw new Error("Source vocal is local but not ready yet. Re-upload the file and try again.");
@@ -1149,10 +1394,10 @@ export default function App() {
                   input_audio_url: beforeAudio.trim()
                 }
               : {
-                  sourceAudioData: beforeAudioDataUrl,
-                  source_audio_data: beforeAudioDataUrl,
-                  inputAudioData: beforeAudioDataUrl,
-                  input_audio_data: beforeAudioDataUrl,
+                  sourceAudioData: sourceAudioData,
+                  source_audio_data: sourceAudioData,
+                  inputAudioData: sourceAudioData,
+                  input_audio_data: sourceAudioData,
                   sourceAudioFileName: beforeAudioFileName || undefined,
                   sourceAudioFormat: beforeAudioFormat || undefined
                 })
@@ -1527,8 +1772,79 @@ export default function App() {
                     bass={isPlaying ? globeAudio.bass : bassDrive}
                     treble={isPlaying ? globeAudio.treble : trebleDrive}
                     distortion={isPlaying ? globeAudio.distortion : distortionDrive}
+                    chaosSensitivity={chaosSensitivity / 100}
+                    reformSpeed={0.5 + (reformSpeed / 100) * 4.5}
+                    flareIntensity={flareIntensity / 100}
+                    colorSpeed={(colorSpeed / 100) * 2.0}
+                    insideView={insideView}
                   />
                 </Suspense>
+              </div>
+              <div className="orb-module-controls">
+                <button
+                  className={insideView ? "preview-toggle is-active" : "preview-toggle"}
+                  onClick={() => setInsideView((value) => !value)}
+                >
+                  {insideView ? "Exit Interior" : "View Inside"}
+                </button>
+                <div className="globe-controls">
+                  <div className="globe-control-row">
+                    <div className="globe-control-label">
+                      <span>Chaos Sensitivity</span>
+                      <span>{chaosSensitivity}%</span>
+                    </div>
+                    <input
+                      type="range"
+                      className="glass-range"
+                      min="20"
+                      max="90"
+                      value={chaosSensitivity}
+                      onChange={(event) => setChaosSensitivity(Number(event.target.value))}
+                    />
+                  </div>
+                  <div className="globe-control-row">
+                    <div className="globe-control-label">
+                      <span>Reform Speed</span>
+                      <span>{Math.round((0.5 + (reformSpeed / 100) * 4.5) * 10) / 10}x</span>
+                    </div>
+                    <input
+                      type="range"
+                      className="glass-range"
+                      min="5"
+                      max="100"
+                      value={reformSpeed}
+                      onChange={(event) => setReformSpeed(Number(event.target.value))}
+                    />
+                  </div>
+                  <div className="globe-control-row">
+                    <div className="globe-control-label">
+                      <span>Flare Intensity</span>
+                      <span>{flareIntensity}%</span>
+                    </div>
+                    <input
+                      type="range"
+                      className="glass-range"
+                      min="0"
+                      max="100"
+                      value={flareIntensity}
+                      onChange={(event) => setFlareIntensity(Number(event.target.value))}
+                    />
+                  </div>
+                  <div className="globe-control-row">
+                    <div className="globe-control-label">
+                      <span>Color Speed</span>
+                      <span>{((colorSpeed / 100) * 2.0).toFixed(2)}x</span>
+                    </div>
+                    <input
+                      type="range"
+                      className="glass-range"
+                      min="0"
+                      max="100"
+                      value={colorSpeed}
+                      onChange={(event) => setColorSpeed(Number(event.target.value))}
+                    />
+                  </div>
+                </div>
               </div>
               <div className="orb-module-readout">
                 <span>OUTPUT: {currentOutput}</span>
@@ -1651,6 +1967,7 @@ export default function App() {
                   key={param.key}
                   label={param.label}
                   value={currentSettings.emotion[param.key] || 0}
+                  step={0.5}
                   onChange={(nextValue) => handleEmotionChange(param.key, nextValue)}
                 />
               ))}
@@ -1701,6 +2018,7 @@ export default function App() {
                   label={param.label}
                   variant="vocal"
                   value={currentSettings.vocal[param.key] || 0}
+                  step={0.5}
                   onChange={(nextValue) => handleVocalChange(param.key, nextValue)}
                 />
               ))}
@@ -1846,13 +2164,13 @@ export default function App() {
               }}
               role="button"
               tabIndex={0}
-              aria-label="Drop audio file or click to upload"
+              aria-label="Drop audio here or click to upload"
               onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") openLocalAudioPicker("before"); }}
             >
               <div className="waveform-label">
                 {beforeAudio
                   ? (beforeAudioFileName || (activeVersion === "A" ? "ORIGINAL" : "GENERATED"))
-                  : "DROP AUDIO HERE · CLICK TO UPLOAD"}
+                  : "Drop audio here or click to upload"}
               </div>
               <svg className="waveform" viewBox="0 0 200 40">
                 {waveformHeights.map((height, i) => (
@@ -1924,6 +2242,7 @@ export default function App() {
               value={volume}
               onChange={(e) => setVolume(clampPercent(Number(e.target.value)))}
               className="volume-slider"
+              aria-label="Volume Control"
             />
             <input
               type="number"
