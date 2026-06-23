@@ -475,16 +475,18 @@ function HolographicGlobe({
     );
     group.add(core);
 
-    const shell = new THREE.Mesh(
-      new THREE.SphereGeometry(1.24, 80, 80),
-      new THREE.MeshBasicMaterial({
-        color: new THREE.Color("#95f0ff"),
-        transparent: true,
-        opacity: 0.06,
-        side: THREE.BackSide
-      })
-    );
-    group.add(shell);
+    // TEST: Commenting out inner shell to see deformation without containment layer
+    // const shell = new THREE.Mesh(
+    //   new THREE.SphereGeometry(1.24, 80, 80),
+    //   new THREE.MeshBasicMaterial({
+    //     color: new THREE.Color("#95f0ff"),
+    //     transparent: true,
+    //     opacity: 0.06,
+    //     side: THREE.BackSide
+    //   })
+    // );
+    // group.add(shell);
+    const shell = null; // Placeholder to avoid reference errors
 
     const aura = new THREE.Mesh(
       new THREE.SphereGeometry(1.58, 72, 72),
@@ -786,7 +788,8 @@ function HolographicGlobe({
         basePulse * stretchMinorA,
         basePulse * stretchMinorB
       );
-      shell.scale.setScalar(1.005 + Math.sin(motionElapsed * (1.7 + morphRef.current * 1.0)) * (0.01 + morphRef.current * 0.018));
+      // TEST: Shell scaling commented out
+      // if (shell) shell.scale.setScalar(1.005 + Math.sin(motionElapsed * (1.7 + morphRef.current * 1.0)) * (0.01 + morphRef.current * 0.018));
       aura.scale.setScalar(1.0 + currentIntensity * 0.1 + pulse * 0.06 + Math.sin(motionElapsed * (0.88 + currentIntensity * 1.3)) * 0.02);
       aura.rotation.z = motionElapsed * (0.04 + currentIntensity * 0.08);
       glow.scale.setScalar(1.0 + Math.sin(motionElapsed * (0.82 + morphRef.current * 0.55)) * (0.015 + morphRef.current * 0.03) + pulse * 0.015);
@@ -827,8 +830,11 @@ function HolographicGlobe({
       material.dispose();
       core.geometry.dispose();
       core.material.dispose();
-      shell.geometry.dispose();
-      shell.material.dispose();
+      // TEST: Shell disposal commented out
+      // if (shell) {
+      //   shell.geometry.dispose();
+      //   shell.material.dispose();
+      // }
       aura.geometry.dispose();
       aura.material.dispose();
       glow.geometry.dispose();
