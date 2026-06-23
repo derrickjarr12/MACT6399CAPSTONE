@@ -606,9 +606,9 @@ function HolographicGlobe({
       const colors = new Float32Array(count * 3);
 
       for (let i = 0; i < count * 3; i += 3) {
-        positions[i] = (Math.random() - 0.5) * 28;     // x
-        positions[i + 1] = (Math.random() - 0.5) * 28; // y
-        positions[i + 2] = (Math.random() - 0.5) * 28 - 12; // z: pushed back
+        positions[i] = (Math.random() - 0.5) * 20;     // x
+        positions[i + 1] = (Math.random() - 0.5) * 20; // y
+        positions[i + 2] = (Math.random() - 0.5) * 8; // z: closer range
 
         // Random subtle colors (cyan/magenta nebula palette)
         const hue = Math.random() > 0.5 ? 0.0 : 0.9; // cyan or magenta
@@ -622,9 +622,9 @@ function HolographicGlobe({
       particles.setAttribute('color', new THREE.BufferAttribute(colors, 3));
 
       const material = new THREE.PointsMaterial({
-        size: 0.08,
+        size: 0.12,
         transparent: true,
-        opacity: 0.25,
+        opacity: 0.45,
         vertexColors: true,
         sizeAttenuation: true,
         depthWrite: false,
@@ -633,7 +633,7 @@ function HolographicGlobe({
 
       return new THREE.Points(particles, material);
     })();
-    nebula.position.z = -10;
+    nebula.position.z = -3;
     group.add(nebula);
 
     const ambientLight = new THREE.AmbientLight(0x80dfff, 0.22);
