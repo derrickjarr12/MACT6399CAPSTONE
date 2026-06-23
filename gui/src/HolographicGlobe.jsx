@@ -598,6 +598,44 @@ function HolographicGlobe({
     );
     group.add(glow);
 
+    // Nebula background layer: 5000 particles, bass-reactive
+    const nebula = (() => {
+      const particles = new THREE.BufferGeometry();
+      const count = 5000;
+      const positions = new Float32Array(count * 3);
+      const colors = new Float32Array(count * 3);
+
+      for (let i = 0; i < count * 3; i += 3) {
+        positions[i] = (Math.random() - 0.5) * 28;     // x
+        positions[i + 1] = (Math.random() - 0.5) * 28; // y
+        positions[i + 2] = (Math.random() - 0.5) * 28 - 12; // z: pushed back
+
+        // Random subtle colors (cyan/magenta nebula palette)
+        const hue = Math.random() > 0.5 ? 0.0 : 0.9; // cyan or magenta
+        const saturation = 0.4 + Math.random() * 0.3;
+        colors[i] = 0.3 + Math.random() * 0.3;     // r
+        colors[i + 1] = 0.5 + Math.random() * 0.3; // g
+        colors[i + 2] = 0.8 + Math.random() * 0.2; // b
+      }
+
+      particles.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+      particles.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+      const material = new THREE.PointsMaterial({
+        size: 0.08,
+        transparent: true,
+        opacity: 0.25,
+        vertexColors: true,
+        sizeAttenuation: true,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending
+      });
+
+      return new THREE.Points(particles, material);
+    })();
+    nebula.position.z = -10;
+    group.add(nebula);
+
     const ambientLight = new THREE.AmbientLight(0x80dfff, 0.22);
     scene.add(ambientLight);
 
@@ -765,6 +803,11 @@ function HolographicGlobe({
         camera.rotateZ(Math.sin(motionElapsed * (0.52 + currentDistortion * 1.05)) * 0.0075 * insideAmt);
       }
       camera.updateProjectionMatrix();
+
+      // Nebula bass reactivity
+      nebula.rotation.y += currentBass * 0.002;
+      nebula.scale.setScalar(1 + currentBass * 0.15);
+
       const rotScale = inside ? 0.05 : 1.0;
       group.rotation.y = motionElapsed * (0.18 + currentDrive * 0.2 + morphRef.current * 0.22) * rotScale;
       group.rotation.x = Math.sin(motionElapsed * (0.7 + morphRef.current * 0.65)) * (0.16 + morphRef.current * 0.18) * rotScale;
@@ -839,6 +882,8 @@ function HolographicGlobe({
       aura.material.dispose();
       glow.geometry.dispose();
       glow.material.dispose();
+      nebula.geometry.dispose();
+      nebula.material.dispose();
       sparkGeometry.dispose();
       sparks.forEach((spark) => spark.material.dispose());
       renderer.dispose();
