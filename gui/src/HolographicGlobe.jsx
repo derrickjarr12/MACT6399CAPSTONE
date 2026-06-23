@@ -9,17 +9,37 @@ function lerp(start, end, amount) {
   return start + (end - start) * amount;
 }
 
-function HolographicGlobe({ drive = 0.5, bass = 0.5, treble = 0.5, distortion = 0.5, chaosSensitivity = 0.67, reformSpeed = 1.45, flareIntensity = 0.72, colorSpeed = 0.28, insideView = false }) {
+function HolographicGlobe({
+  drive = 0.5,
+  bass = 0.5,
+  treble = 0.5,
+  distortion = 0.5,
+  audioDrive,
+  audioBass,
+  audioTreble,
+  audioDistortion,
+  audioIntensity,
+  audioMix = 0.68,
+  chaosSensitivity = 0.67,
+  reformSpeed = 1.45,
+  flareIntensity = 0.72,
+  colorSpeed = 0.28,
+  insideView = false
+}) {
   const mountRef = useRef(null);
   const driveRef = useRef(clamp01(drive));
   const bassRef = useRef(clamp01(bass));
   const trebleRef = useRef(clamp01(treble));
   const distortionRef = useRef(clamp01(distortion));
+  const intensityRef = useRef(0.3);
   const chaosRef = useRef(false);
   const morphRef = useRef(0);
   const energyRef = useRef(0.3);
   const peakPulseRef = useRef(0);
   const prevEnergyRef = useRef(0.3);
+  const motionElapsedRef = useRef(0);
+  const blobAmountRef = useRef(0);
+  const blobAxisRef = useRef(new THREE.Vector3(1, 0, 0));
   const chaosSensitivityRef = useRef(chaosSensitivity);
   const reformSpeedRef = useRef(reformSpeed);
   const flareIntensityRef = useRef(flareIntensity);
@@ -32,16 +52,41 @@ function HolographicGlobe({ drive = 0.5, bass = 0.5, treble = 0.5, distortion = 
   }, [drive]);
 
   useEffect(() => {
+    if (audioDrive === undefined || audioDrive === null) return;
+    driveRef.current = clamp01(lerp(driveRef.current, clamp01(audioDrive), clamp01(audioMix)));
+  }, [audioDrive, audioMix]);
+
+  useEffect(() => {
     bassRef.current = clamp01(bass);
   }, [bass]);
+
+  useEffect(() => {
+    if (audioBass === undefined || audioBass === null) return;
+    bassRef.current = clamp01(lerp(bassRef.current, clamp01(audioBass), clamp01(audioMix)));
+  }, [audioBass, audioMix]);
 
   useEffect(() => {
     trebleRef.current = clamp01(treble);
   }, [treble]);
 
   useEffect(() => {
+    if (audioTreble === undefined || audioTreble === null) return;
+    trebleRef.current = clamp01(lerp(trebleRef.current, clamp01(audioTreble), clamp01(audioMix)));
+  }, [audioTreble, audioMix]);
+
+  useEffect(() => {
     distortionRef.current = clamp01(distortion);
   }, [distortion]);
+
+  useEffect(() => {
+    if (audioDistortion === undefined || audioDistortion === null) return;
+    distortionRef.current = clamp01(lerp(distortionRef.current, clamp01(audioDistortion), clamp01(audioMix)));
+  }, [audioDistortion, audioMix]);
+
+  useEffect(() => {
+    if (audioIntensity === undefined || audioIntensity === null) return;
+    intensityRef.current = clamp01(lerp(intensityRef.current, clamp01(audioIntensity), clamp01(audioMix)));
+  }, [audioIntensity, audioMix]);
 
   useEffect(() => {
     chaosSensitivityRef.current = chaosSensitivity;
@@ -150,11 +195,14 @@ function HolographicGlobe({ drive = 0.5, bass = 0.5, treble = 0.5, distortion = 
           vNormal = normalize(normalMatrix * normal);
 
           float t = uTime * 0.55;
+          float lfo = 0.5 + 0.5 * sin(uTime * 0.45);
+          float lfoPhase = uTime * (0.7 + lfo * 0.18);
           float warpA = noise(normal * 2.6 + vec3(t, -t * 0.7, t * 0.4));
           float warpB = noise(position * 1.8 + vec3(-t * 0.4, t * 0.8, -t));
-          float rippleWave = sin((position.y * 9.0 + position.x * 7.5) + uTime * (2.2 + uDistortion * 4.5));
-          float rippleRing = sin(length(position.xy) * 22.0 - uTime * (1.6 + uDistortion * 3.8));
-          float ripple = (rippleWave * 0.02 + rippleRing * 0.016) * (0.45 + uDistortion * 1.35);
+          float rippleWave = sin((position.y * 5.2 + position.x * 4.3) + lfoPhase + uDistortion * 0.9);
+          float rippleRing = sin(length(position.xy) * 15.0 - uTime * (0.55 + uDistortion * 1.05));
+          float rippleDrift = sin((position.x + position.y + position.z) * 4.2 + uTime * 0.42);
+          float ripple = (rippleWave * 0.022 + rippleRing * 0.018 + rippleDrift * 0.012) * (0.42 + uDistortion * 1.1) * (0.75 + lfo * 0.45);
           float distortion = mix(0.05, 0.16, uDrive) * (warpA * 0.7 + warpB * 0.5);
           distortion = distortion * (0.85 + uDistortion * 0.9) + ripple;
 
@@ -438,6 +486,77 @@ function HolographicGlobe({ drive = 0.5, bass = 0.5, treble = 0.5, distortion = 
     );
     group.add(shell);
 
+    const aura = new THREE.Mesh(
+      new THREE.SphereGeometry(1.58, 72, 72),
+      new THREE.ShaderMaterial({
+        transparent: true,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+        side: THREE.BackSide,
+        uniforms: {
+          uTime: { value: 0 },
+          uEnergy: { value: 0.3 },
+          uPulse: { value: 0 },
+          uColorA: { value: new THREE.Color("#7cf4ff") },
+          uColorB: { value: new THREE.Color("#ff7dd9") }
+        },
+        vertexShader: `
+          varying vec3 vNormal;
+          void main() {
+            vNormal = normalize(normalMatrix * normal);
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+          }
+        `,
+        fragmentShader: `
+          varying vec3 vNormal;
+          uniform float uTime;
+          uniform float uEnergy;
+          uniform float uPulse;
+          uniform vec3 uColorA;
+          uniform vec3 uColorB;
+
+          void main() {
+            float rim = pow(0.92 - dot(vNormal, vec3(0.0, 0.0, 1.0)), 2.8);
+            float ripple = 0.5 + 0.5 * sin(uTime * (1.2 + uEnergy * 1.9) + rim * 8.0);
+            vec3 color = mix(uColorA, uColorB, ripple);
+            float alpha = rim * (0.08 + uEnergy * 0.22 + uPulse * 0.12);
+            gl_FragColor = vec4(color, alpha);
+          }
+        `
+      })
+    );
+    group.add(aura);
+
+    const sparkGeometry = new THREE.SphereGeometry(0.03, 10, 10);
+    const sparks = [];
+    const sparkCount = 14;
+
+    for (let index = 0; index < sparkCount; index += 1) {
+      const spark = new THREE.Mesh(
+        sparkGeometry,
+        new THREE.MeshBasicMaterial({
+          color: index % 2 === 0 ? 0x87f8ff : 0xff7fd9,
+          transparent: true,
+          opacity: 0.65,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false
+        })
+      );
+
+      spark.userData = {
+        phase: Math.random() * Math.PI * 2,
+        speed: 0.35 + Math.random() * 0.9,
+        radius: 1.65 + Math.random() * 0.48,
+        tilt: (Math.random() - 0.5) * 0.9,
+        wobble: 0.5 + Math.random() * 1.4,
+        lift: 0.08 + Math.random() * 0.22,
+        drift: Math.random() * Math.PI * 2
+      };
+
+      sparks.push(spark);
+      group.add(spark);
+    }
+
     const glow = new THREE.Mesh(
       new THREE.SphereGeometry(1.34, 64, 64),
       new THREE.ShaderMaterial({
@@ -531,14 +650,16 @@ function HolographicGlobe({ drive = 0.5, bass = 0.5, treble = 0.5, distortion = 
       const currentBass = bassRef.current;
       const currentTreble = trebleRef.current;
       const currentDistortion = distortionRef.current;
+      const currentIntensity = intensityRef.current;
 
       const targetEnergy = clamp01(
-        currentDrive * 0.35 +
-        currentBass * 0.25 +
-        currentTreble * 0.2 +
-        currentDistortion * 0.2
+        currentIntensity * 0.46 +
+        currentDrive * 0.18 +
+        currentBass * 0.1 +
+        currentTreble * 0.07 +
+        currentDistortion * 0.07
       );
-      energyRef.current = lerp(energyRef.current, targetEnergy, Math.min(1, delta * 5.5));
+      energyRef.current = lerp(energyRef.current, targetEnergy, Math.min(1, delta * 4.0));
 
       const risingEnergy = Math.max(0, targetEnergy - prevEnergyRef.current);
       prevEnergyRef.current = targetEnergy;
@@ -552,40 +673,20 @@ function HolographicGlobe({ drive = 0.5, bass = 0.5, treble = 0.5, distortion = 
       }
 
       const morphTarget = chaosRef.current ? 1 : 0;
-      const morphSpeed = chaosRef.current ? 2.8 : reformSpeedRef.current;
+      const morphSpeed = chaosRef.current ? 2.0 : reformSpeedRef.current;
       morphRef.current = lerp(morphRef.current, morphTarget, Math.min(1, delta * morphSpeed));
 
-      peakPulseRef.current = Math.max(0, peakPulseRef.current - delta * 0.9);
-      if (risingEnergy > 0.11 && targetEnergy > cs * 0.92) {
-        peakPulseRef.current = Math.min(1, peakPulseRef.current + 0.36 * flareIntensityRef.current);
+      peakPulseRef.current = Math.max(0, peakPulseRef.current - delta * 1.15);
+      if (risingEnergy > 0.12 && targetEnergy > cs * 0.94) {
+        peakPulseRef.current = Math.min(1, peakPulseRef.current + 0.26 * flareIntensityRef.current);
+      }
+
+      if (currentIntensity > 0.78) {
+        peakPulseRef.current = Math.min(1, peakPulseRef.current + (currentIntensity - 0.78) * 0.12 * flareIntensityRef.current);
       }
 
       const pulse = peakPulseRef.current;
       const paletteShift = clamp01(currentTreble * 0.6 + currentDistortion * 0.4);
-
-      uniforms.uTime.value = elapsed;
-      uniforms.uDrive.value = currentDrive;
-      uniforms.uBass.value = currentBass;
-      uniforms.uTreble.value = currentTreble;
-      uniforms.uDistortion.value = currentDistortion;
-      uniforms.uMorph.value = morphRef.current;
-      uniforms.uEnergy.value = energyRef.current;
-      uniforms.uPulse.value = pulse;
-      uniforms.uPaletteShift.value = paletteShift;
-      uniforms.uColorSpeed.value = colorSpeedRef.current;
-      uniforms.uInsideAmount.value = insideAmountRef.current;
-      coreUniforms.uTime.value = elapsed;
-      coreUniforms.uBass.value = currentBass;
-      coreUniforms.uTreble.value = currentTreble;
-      coreUniforms.uDistortion.value = currentDistortion;
-      coreUniforms.uMorph.value = morphRef.current;
-      coreUniforms.uEnergy.value = energyRef.current;
-      coreUniforms.uPulse.value = pulse;
-      coreUniforms.uInsideAmount.value = insideAmountRef.current;
-      glow.material.uniforms.uTime.value = elapsed;
-      glow.material.uniforms.uMorph.value = morphRef.current;
-      glow.material.uniforms.uEnergy.value = energyRef.current;
-      glow.material.uniforms.uPulse.value = pulse;
 
       ambientLight.intensity = 0.14 + currentBass * 0.12 + (1 - morphRef.current) * 0.06;
       directionalLight.intensity = 1.1 + currentTreble * 0.55 + pulse * 0.4;
@@ -604,6 +705,45 @@ function HolographicGlobe({ drive = 0.5, bass = 0.5, treble = 0.5, distortion = 
       const inside = insideViewRef.current;
       insideAmountRef.current = lerp(insideAmountRef.current, inside ? 1 : 0, Math.min(1, delta * 2.2));
       const insideAmt = insideAmountRef.current;
+      const motionSlowdown = lerp(1, 0.12, insideAmt);
+      motionElapsedRef.current += delta * motionSlowdown;
+      const motionElapsed = motionElapsedRef.current;
+      const blobTarget = clamp01(currentIntensity * 0.58 + pulse * 0.76 + morphRef.current * 0.34);
+      blobAmountRef.current = lerp(blobAmountRef.current, blobTarget, Math.min(1, delta * (blobTarget > blobAmountRef.current ? 3.0 : 1.5)));
+      const blobAmount = blobAmountRef.current;
+
+      const axis = blobAxisRef.current;
+      axis.x = Math.sin(motionElapsed * 0.52 + currentTreble * 1.4);
+      axis.y = Math.cos(motionElapsed * 0.44 + currentBass * 1.0);
+      axis.z = Math.sin(motionElapsed * 0.36 + currentDistortion * 1.5);
+      axis.normalize();
+
+      uniforms.uTime.value = motionElapsed;
+      uniforms.uDrive.value = currentDrive;
+      uniforms.uBass.value = currentBass;
+      uniforms.uTreble.value = currentTreble;
+      uniforms.uDistortion.value = currentDistortion;
+      uniforms.uMorph.value = morphRef.current;
+      uniforms.uEnergy.value = energyRef.current;
+      uniforms.uPulse.value = pulse;
+      uniforms.uPaletteShift.value = paletteShift;
+      uniforms.uColorSpeed.value = colorSpeedRef.current;
+      uniforms.uInsideAmount.value = insideAmt;
+      coreUniforms.uTime.value = motionElapsed;
+      coreUniforms.uBass.value = currentBass;
+      coreUniforms.uTreble.value = currentTreble;
+      coreUniforms.uDistortion.value = currentDistortion;
+      coreUniforms.uMorph.value = morphRef.current;
+      coreUniforms.uEnergy.value = energyRef.current;
+      coreUniforms.uPulse.value = pulse;
+      coreUniforms.uInsideAmount.value = insideAmt;
+      glow.material.uniforms.uTime.value = motionElapsed;
+      glow.material.uniforms.uMorph.value = morphRef.current;
+      glow.material.uniforms.uEnergy.value = energyRef.current;
+      glow.material.uniforms.uPulse.value = pulse;
+      aura.material.uniforms.uTime.value = motionElapsed;
+      aura.material.uniforms.uEnergy.value = energyRef.current;
+      aura.material.uniforms.uPulse.value = pulse;
 
       const targetZ = inside ? 0.1 : 3.8;
       const targetFov = inside ? 112 : 42;
@@ -611,35 +751,65 @@ function HolographicGlobe({ drive = 0.5, bass = 0.5, treble = 0.5, distortion = 
       camera.fov = lerp(camera.fov, targetFov, Math.min(1, delta * 1.6));
       if (inside) {
         const drift = 0.34 + currentDrive * 0.2 + pulse * 0.22;
-        const spiral = elapsed * (0.54 + currentTreble * 0.95 + pulse * 0.5);
-        camera.position.x = Math.cos(spiral) * drift + Math.sin(elapsed * 2.1) * 0.06;
-        camera.position.y = Math.sin(spiral * 1.18) * (drift * 0.76) + Math.cos(elapsed * 1.7) * 0.05;
+        const spiral = motionElapsed * (0.54 + currentTreble * 0.95 + pulse * 0.5);
+        camera.position.x = Math.cos(spiral) * drift + Math.sin(motionElapsed * 2.1) * 0.06;
+        camera.position.y = Math.sin(spiral * 1.18) * (drift * 0.76) + Math.cos(motionElapsed * 1.7) * 0.05;
       } else {
         camera.position.x = lerp(camera.position.x, 0, Math.min(1, delta * 2.2));
         camera.position.y = lerp(camera.position.y, 0, Math.min(1, delta * 2.2));
       }
       camera.lookAt(0, 0, 0);
       if (insideAmt > 0.02) {
-        camera.rotateZ(Math.sin(elapsed * (0.52 + currentDistortion * 1.05)) * 0.0075 * insideAmt);
+        camera.rotateZ(Math.sin(motionElapsed * (0.52 + currentDistortion * 1.05)) * 0.0075 * insideAmt);
       }
       camera.updateProjectionMatrix();
       const rotScale = inside ? 0.05 : 1.0;
-      group.rotation.y = elapsed * (0.18 + currentDrive * 0.2 + morphRef.current * 0.22) * rotScale;
-      group.rotation.x = Math.sin(elapsed * (0.7 + morphRef.current * 0.65)) * (0.16 + morphRef.current * 0.18) * rotScale;
-      globe.rotation.z = Math.sin(elapsed * (0.9 + currentDistortion * 1.6 + morphRef.current * 2.0)) * (0.08 + currentDistortion * 0.08 + morphRef.current * 0.16);
-      core.rotation.y = -elapsed * (0.22 + currentTreble * 0.52 + morphRef.current * 0.58);
-      core.rotation.x = Math.sin(elapsed * (0.78 + morphRef.current * 0.82)) * (0.1 + currentBass * 0.08 + morphRef.current * 0.12);
-      core.position.x = Math.sin(elapsed * 0.31) * (0.07 + currentBass * 0.14 + morphRef.current * 0.2);
-      core.position.y = Math.sin(elapsed * 0.27 + 1.1) * (0.06 + currentTreble * 0.12 + morphRef.current * 0.16);
-      core.position.z = Math.sin(elapsed * 0.19 + 2.3) * (0.04 + currentDistortion * 0.09 + morphRef.current * 0.13);
+      group.rotation.y = motionElapsed * (0.18 + currentDrive * 0.2 + morphRef.current * 0.22) * rotScale;
+      group.rotation.x = Math.sin(motionElapsed * (0.7 + morphRef.current * 0.65)) * (0.16 + morphRef.current * 0.18) * rotScale;
+      globe.rotation.z = Math.sin(motionElapsed * (0.9 + currentDistortion * 1.6 + morphRef.current * 2.0)) * (0.08 + currentDistortion * 0.08 + morphRef.current * 0.16);
+      core.rotation.y = -motionElapsed * (0.22 + currentTreble * 0.52 + morphRef.current * 0.58);
+      core.rotation.x = Math.sin(motionElapsed * (0.78 + morphRef.current * 0.82)) * (0.1 + currentBass * 0.08 + morphRef.current * 0.12);
+      core.position.x = Math.sin(motionElapsed * 0.31) * (0.07 + currentBass * 0.14 + morphRef.current * 0.2);
+      core.position.y = Math.sin(motionElapsed * 0.27 + 1.1) * (0.06 + currentTreble * 0.12 + morphRef.current * 0.16);
+      core.position.z = Math.sin(motionElapsed * 0.19 + 2.3) * (0.04 + currentDistortion * 0.09 + morphRef.current * 0.13);
       core.scale.set(
-        0.985 + Math.sin(elapsed * (1.35 + currentBass * 0.9 + morphRef.current * 1.2)) * (0.014 + currentDistortion * 0.022 + morphRef.current * 0.055),
-        0.985 + Math.sin(elapsed * (1.58 + currentTreble * 1.1 + morphRef.current * 0.9) + 0.82) * (0.016 + currentBass * 0.024 + morphRef.current * 0.062),
-        0.985 + Math.sin(elapsed * (1.12 + currentDistortion * 0.85 + morphRef.current * 1.05) + 1.65) * (0.011 + currentDrive * 0.019 + morphRef.current * 0.048)
+        0.985 + Math.sin(motionElapsed * (1.35 + currentBass * 0.9 + morphRef.current * 1.2)) * (0.014 + currentDistortion * 0.022 + morphRef.current * 0.055),
+        0.985 + Math.sin(motionElapsed * (1.58 + currentTreble * 1.1 + morphRef.current * 0.9) + 0.82) * (0.016 + currentBass * 0.024 + morphRef.current * 0.062),
+        0.985 + Math.sin(motionElapsed * (1.12 + currentDistortion * 0.85 + morphRef.current * 1.05) + 1.65) * (0.011 + currentDrive * 0.019 + morphRef.current * 0.048)
       );
-      globe.scale.setScalar(1 + Math.sin(elapsed * (2.1 + currentDistortion * 2.8 + morphRef.current * 2.1)) * (0.018 + currentDrive * 0.022 + currentDistortion * 0.03 + morphRef.current * 0.06));
-      shell.scale.setScalar(1.005 + Math.sin(elapsed * (1.7 + morphRef.current * 1.0)) * (0.01 + morphRef.current * 0.018));
-      glow.scale.setScalar(1.0 + Math.sin(elapsed * (1.1 + morphRef.current * 0.75)) * (0.02 + morphRef.current * 0.04) + pulse * 0.02);
+      const basePulse = 1 + Math.sin(motionElapsed * (1.55 + currentDistortion * 2.0 + morphRef.current * 1.5)) * (0.014 + currentDrive * 0.018 + currentDistortion * 0.022 + morphRef.current * 0.045);
+      const stretchMain = 1 + blobAmount * (0.18 + 0.12 * Math.sin(motionElapsed * 1.1 + axis.x * 1.5));
+      const stretchMinorA = 1 - blobAmount * (0.09 + 0.06 * Math.sin(motionElapsed * 0.92 + axis.y * 1.6));
+      const stretchMinorB = 1 - blobAmount * (0.07 + 0.05 * Math.cos(motionElapsed * 0.82 + axis.z * 1.8));
+      globe.scale.set(
+        basePulse * stretchMain,
+        basePulse * stretchMinorA,
+        basePulse * stretchMinorB
+      );
+      shell.scale.setScalar(1.005 + Math.sin(motionElapsed * (1.7 + morphRef.current * 1.0)) * (0.01 + morphRef.current * 0.018));
+      aura.scale.setScalar(1.0 + currentIntensity * 0.1 + pulse * 0.06 + Math.sin(motionElapsed * (0.88 + currentIntensity * 1.3)) * 0.02);
+      aura.rotation.z = motionElapsed * (0.04 + currentIntensity * 0.08);
+      glow.scale.setScalar(1.0 + Math.sin(motionElapsed * (0.82 + morphRef.current * 0.55)) * (0.015 + morphRef.current * 0.03) + pulse * 0.015);
+
+      globe.rotation.x = Math.sin(motionElapsed * (0.62 + blobAmount * 1.2)) * (0.04 + blobAmount * 0.22);
+      globe.rotation.y = Math.cos(motionElapsed * (0.55 + blobAmount * 1.1)) * (0.04 + blobAmount * 0.18);
+
+      for (let index = 0; index < sparks.length; index += 1) {
+        const spark = sparks[index];
+        const data = spark.userData;
+        const baseAngle = motionElapsed * (data.speed * 0.72 + currentIntensity * 0.95) + data.phase;
+        const radius = data.radius + currentIntensity * 0.48 + pulse * 0.2;
+        const twist = Math.sin(baseAngle * 1.7 + data.drift) * data.wobble;
+        const lift = Math.sin(baseAngle * 2.2 + data.phase) * data.lift;
+
+        spark.position.set(
+          Math.cos(baseAngle) * radius,
+          Math.sin(baseAngle * 0.78 + data.tilt) * radius * 0.55 + lift,
+          Math.sin(baseAngle) * radius * 0.62 + twist
+        );
+        spark.scale.setScalar(0.5 + currentIntensity * 0.8 + pulse * 0.45);
+        spark.material.opacity = 0.16 + currentIntensity * 0.34 + pulse * 0.18;
+      }
 
       renderer.render(scene, camera);
     }
@@ -659,8 +829,12 @@ function HolographicGlobe({ drive = 0.5, bass = 0.5, treble = 0.5, distortion = 
       core.material.dispose();
       shell.geometry.dispose();
       shell.material.dispose();
+      aura.geometry.dispose();
+      aura.material.dispose();
       glow.geometry.dispose();
       glow.material.dispose();
+      sparkGeometry.dispose();
+      sparks.forEach((spark) => spark.material.dispose());
       renderer.dispose();
       if (mount.contains(renderer.domElement)) {
         mount.removeChild(renderer.domElement);

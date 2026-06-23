@@ -512,11 +512,11 @@ export default function App() {
   const analyserRef = useRef(null);
   const fxNodesRef = useRef(null);
   const fftRef = useRef(new Uint8Array(128));
-  const audioEnvelopeRef = useRef({ drive: 0.3, bass: 0.3, treble: 0.3, distortion: 0.3 });
+  const audioEnvelopeRef = useRef({ drive: 0.3, bass: 0.3, treble: 0.3, distortion: 0.3, intensity: 0.3 });
   const prevSpectrumRef = useRef(new Uint8Array(128));
   const globeRafRef = useRef(null);
   const [waveformDragOver, setWaveformDragOver] = useState(false);
-  const [globeAudio, setGlobeAudio] = useState({ drive: 0.3, bass: 0.3, treble: 0.3, distortion: 0.3 });
+  const [globeAudio, setGlobeAudio] = useState({ drive: 0.3, bass: 0.3, treble: 0.3, distortion: 0.3, intensity: 0.3 });
   const [insideView, setInsideView] = useState(false);
   const [chaosSensitivity, setChaosSensitivity] = useState(67);
   const [reformSpeed, setReformSpeed] = useState(20);
@@ -892,11 +892,14 @@ export default function App() {
             : current + (target - current) * release
         );
 
+        const intensityTarget = Math.min(1, rmsRaw * 1.4 + transientRaw * 0.55 + peak * 0.28 + dynamicRaw * 0.2);
+
         const next = {
           drive: smooth(prev.drive, driveTarget, 0.38, 0.12),
           bass: smooth(prev.bass, bassTarget, 0.45, 0.12),
           treble: smooth(prev.treble, trebleTarget, 0.34, 0.11),
-          distortion: smooth(prev.distortion, distortionTarget, 0.36, 0.12)
+          distortion: smooth(prev.distortion, distortionTarget, 0.36, 0.12),
+          intensity: smooth(prev.intensity ?? 0.3, intensityTarget, 0.42, 0.14)
         };
 
         audioEnvelopeRef.current = next;
@@ -1768,10 +1771,16 @@ export default function App() {
               <div className="orb-module-stage">
                 <Suspense fallback={<div>Loading Orb...</div>}>
                   <HolographicGlobe
-                    drive={isPlaying ? globeAudio.drive : emotionDial / 100}
-                    bass={isPlaying ? globeAudio.bass : bassDrive}
-                    treble={isPlaying ? globeAudio.treble : trebleDrive}
-                    distortion={isPlaying ? globeAudio.distortion : distortionDrive}
+                    drive={emotionDial / 100}
+                    bass={bassDrive}
+                    treble={trebleDrive}
+                    distortion={distortionDrive}
+                    audioDrive={isPlaying ? globeAudio.drive : undefined}
+                    audioBass={isPlaying ? globeAudio.bass : undefined}
+                    audioTreble={isPlaying ? globeAudio.treble : undefined}
+                    audioDistortion={isPlaying ? globeAudio.distortion : undefined}
+                    audioIntensity={isPlaying ? globeAudio.intensity : undefined}
+                    audioMix={0.68}
                     chaosSensitivity={chaosSensitivity / 100}
                     reformSpeed={0.5 + (reformSpeed / 100) * 4.5}
                     flareIntensity={flareIntensity / 100}
