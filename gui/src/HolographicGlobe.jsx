@@ -598,42 +598,110 @@ function HolographicGlobe({
     );
     group.add(glow);
 
-    // Nebula background layer: 5000 particles, bass-reactive
+    // Nebula layer: atom-style cloud with flowing gooey motion.
     const nebula = (() => {
       const particles = new THREE.BufferGeometry();
-      const count = 5000;
+      const cores = navigator.hardwareConcurrency || 4;
+      const coreFactor = Math.min(1.4, Math.max(0.75, cores / 8));
+      const dprPenalty = window.devicePixelRatio > 1.5 ? 0.8 : 1.0;
+      const webglFactor = renderer.capabilities.isWebGL2 ? 1.0 : 0.7;
+      const count = Math.round(Math.min(32000, Math.max(14000, 23000 * coreFactor * dprPenalty * webglFactor)));
       const positions = new Float32Array(count * 3);
       const colors = new Float32Array(count * 3);
+      const seeds = new Float32Array(count * 3);
 
       for (let i = 0; i < count * 3; i += 3) {
-        positions[i] = (Math.random() - 0.5) * 20;     // x
-        positions[i + 1] = (Math.random() - 0.5) * 20; // y
-        positions[i + 2] = (Math.random() - 0.5) * 8; // z: closer range
+        // Atom-style clustered cloud centered on the globe.
+        const theta = Math.random() * Math.PI * 2;
+        const phi = Math.acos(2 * Math.random() - 1);
+        const shell = 1.65 + Math.pow(Math.random(), 0.52) * 1.35;
+        const jitter = (Math.random() - 0.5) * 0.2;
+        const radius = shell + jitter;
+
+        positions[i] = Math.sin(phi) * Math.cos(theta) * radius;
+        positions[i + 1] = Math.sin(phi) * Math.sin(theta) * radius;
+        positions[i + 2] = Math.cos(phi) * radius;
 
         // Random subtle colors (cyan/magenta nebula palette)
-        const hue = Math.random() > 0.5 ? 0.0 : 0.9; // cyan or magenta
-        const saturation = 0.4 + Math.random() * 0.3;
         colors[i] = 0.3 + Math.random() * 0.3;     // r
         colors[i + 1] = 0.5 + Math.random() * 0.3; // g
         colors[i + 2] = 0.8 + Math.random() * 0.2; // b
+
+        seeds[i] = Math.random();
+        seeds[i + 1] = Math.random();
+        seeds[i + 2] = Math.random();
       }
 
-      particles.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-      particles.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+      particles.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+      particles.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+      particles.setAttribute("aSeed", new THREE.BufferAttribute(seeds, 3));
 
-      const material = new THREE.PointsMaterial({
-        size: 0.12,
+      const material = new THREE.ShaderMaterial({
         transparent: true,
-        opacity: 0.45,
-        vertexColors: true,
-        sizeAttenuation: true,
         depthWrite: false,
-        blending: THREE.AdditiveBlending
+        blending: THREE.AdditiveBlending,
+        uniforms: {
+          uTime: { value: 0 },
+          uBass: { value: 0.3 },
+          uMorph: { value: 0.0 },
+          uIntensity: { value: 0.3 }
+        },
+        vertexShader: `
+          attribute vec3 aSeed;
+          varying vec3 vColor;
+          varying float vPulse;
+
+          uniform float uTime;
+          uniform float uBass;
+          uniform float uMorph;
+          uniform float uIntensity;
+
+          void main() {
+            vec3 p = position;
+            vec3 dir = normalize(p + vec3(0.0001));
+
+            float waveA = sin(uTime * (0.62 + aSeed.z * 0.55) + aSeed.x * 6.2831);
+            float waveB = cos(uTime * (0.84 + aSeed.y * 0.45) + aSeed.z * 5.913);
+            float goo = (waveA * 0.55 + waveB * 0.45) * (0.12 + uBass * 0.28 + uMorph * 0.22);
+
+            vec3 tangentA = normalize(cross(dir, vec3(0.0, 1.0, 0.0)) + vec3(0.0001));
+            vec3 tangentB = normalize(cross(dir, tangentA) + vec3(0.0001));
+            float swirlA = sin(uTime * (1.1 + aSeed.x * 0.6) + aSeed.y * 6.2831);
+            float swirlB = cos(uTime * (0.9 + aSeed.y * 0.7) + aSeed.z * 6.2831);
+            float swirlAmp = 0.085 + uMorph * 0.12 + uIntensity * 0.08;
+
+            p += dir * goo;
+            p += tangentA * swirlA * swirlAmp;
+            p += tangentB * swirlB * swirlAmp * 0.75;
+
+            vec4 mvPosition = modelViewMatrix * vec4(p, 1.0);
+            gl_Position = projectionMatrix * mvPosition;
+
+            float pointBase = 4.2 + uBass * 5.2 + uIntensity * 4.1;
+            gl_PointSize = pointBase * (0.7 + aSeed.z * 0.95) * (240.0 / -mvPosition.z);
+
+            vColor = color;
+            vPulse = 0.55 + 0.45 * sin(uTime * (1.2 + aSeed.x * 0.9) + aSeed.y * 4.8);
+          }
+        `,
+        fragmentShader: `
+          varying vec3 vColor;
+          varying float vPulse;
+
+          void main() {
+            vec2 uv = gl_PointCoord - vec2(0.5);
+            float d = length(uv);
+            float softCore = smoothstep(0.42, 0.02, d);
+            float halo = smoothstep(0.62, 0.2, d) * 0.45;
+            float alpha = (softCore + halo) * (0.36 + vPulse * 0.44);
+            gl_FragColor = vec4(vColor, alpha);
+          }
+        `
       });
 
       return new THREE.Points(particles, material);
     })();
-    nebula.position.z = -3;
+    nebula.position.set(0, 0, 0);
     group.add(nebula);
 
     const ambientLight = new THREE.AmbientLight(0x80dfff, 0.22);
@@ -804,9 +872,13 @@ function HolographicGlobe({
       }
       camera.updateProjectionMatrix();
 
-      // Nebula bass reactivity
-      nebula.rotation.y += currentBass * 0.002;
-      nebula.scale.setScalar(1 + currentBass * 0.15);
+      // Nebula gooey flow + bass reactivity
+      nebula.material.uniforms.uTime.value = motionElapsed;
+      nebula.material.uniforms.uBass.value = currentBass;
+      nebula.material.uniforms.uMorph.value = morphRef.current;
+      nebula.material.uniforms.uIntensity.value = currentIntensity;
+      nebula.rotation.y += currentBass * 0.0036;
+      nebula.scale.setScalar(1 + currentBass * 0.18 + pulse * 0.07);
 
       const rotScale = inside ? 0.05 : 1.0;
       group.rotation.y = motionElapsed * (0.18 + currentDrive * 0.2 + morphRef.current * 0.22) * rotScale;
