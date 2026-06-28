@@ -2,6 +2,30 @@
 // Secure environment variable loader and validator for provider credentials.
 // Fails fast if required keys are missing.
 
+const fs = require('fs');
+const path = require('path');
+const dotenv = require('dotenv');
+
+let envBootstrapped = false;
+
+function bootstrapEnv() {
+  if (envBootstrapped) return;
+
+  const candidates = [
+    path.resolve(process.cwd(), '.env'),
+    path.resolve(__dirname, '../../.env')
+  ];
+
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) {
+      dotenv.config({ path: candidate });
+      break;
+    }
+  }
+
+  envBootstrapped = true;
+}
+
 const requiredKeys = [
   'ELEVENLABS_API_KEY',
   'ELEVENLABS_VOICE_ID'
@@ -20,6 +44,8 @@ const optionalKeys = [
 ];
 
 function loadEnv() {
+  bootstrapEnv();
+
   const config = {};
   const missing = [];
   const missingProviders = [];

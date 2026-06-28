@@ -3,18 +3,21 @@
   "private": true,
   "version": "1.0.0",
   "scripts": {
+    "start": "node src/index.js",
     "dev": "nodemon src/index.js",
     "dev:gui": "cd gui && npm run dev",
     "build:gui": "cd gui && npm run build",
     "package:guis": "node scripts/package-guis.mjs",
     "package:gui:v1": "node scripts/package-guis.mjs v1",
     "package:gui:v1.2": "node scripts/package-guis.mjs v1.2",
-    "test:compat": "node ARLNS/compat_baseline_v1.test.js"
+    "test:compat": "node ARLNS/compat_baseline_v1.test.js",
+    "preflight": "npm run test:compat && npm run build:gui && node -e \"require('./src/config/validate-startup').validateStartup()\""
   },
   "devDependencies": {
     "nodemon": "^3.1.14"
   },
   "dependencies": {
+    "dotenv": "^16.4.5",
     "express": "^5.2.1",
     "mysql2": "^3.22.4"
   }

@@ -1693,6 +1693,53 @@ input[type="range"].glass-range::-moz-range-thumb {
   color: var(--text-soft);
 }
 
+.controls-effect-row-eq {
+  align-items: start;
+}
+
+.controls-effect-row-eq .controls-effect-slider,
+.controls-effect-row-eq .controls-effect-input {
+  transform: translateY(14px);
+}
+
+.controls-effect-row-eq .controls-effect-input {
+  transform: translateY(18px);
+}
+
+.controls-effect-eq-meta {
+  display: grid;
+  gap: 6px;
+}
+
+.controls-eq-band-buttons {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.controls-eq-band-btn {
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+  border-radius: 999px;
+  padding: 3px 9px;
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+}
+
+.controls-eq-band-btn.is-active {
+  border-color: var(--cyan-strong);
+  box-shadow: 0 0 0 1px rgba(77, 219, 255, 0.24);
+  color: var(--cyan-strong);
+}
+
+.controls-eq-band-range {
+  color: var(--text-soft);
+  font-size: 0.68rem;
+  letter-spacing: 0.02em;
+}
+
 .controls-effect-slider {
   width: 100%;
 }

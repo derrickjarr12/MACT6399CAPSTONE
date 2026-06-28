@@ -27,3 +27,7 @@ function validateStartup() {
 module.exports = {
   validateStartup
 };
+
+if (require.main === module) {
+  validateStartup();
+}

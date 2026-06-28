@@ -24,7 +24,10 @@ function HolographicGlobe({
   reformSpeed = 1.45,
   flareIntensity = 0.72,
   colorSpeed = 0.28,
-  insideView = false
+  insideView = false,
+  textureUrl = null,
+  normalMapUrl = null,
+  onTextureUpdate = null
 }) {
   const mountRef = useRef(null);
   const driveRef = useRef(clamp01(drive));
@@ -46,6 +49,12 @@ function HolographicGlobe({
   const colorSpeedRef = useRef(colorSpeed);
   const insideViewRef = useRef(insideView);
   const insideAmountRef = useRef(0);
+  
+  // Texture management refs
+  const textureLoaderRef = useRef(new THREE.TextureLoader());
+  const currentTextureUrlRef = useRef(textureUrl);
+  const sceneRef = useRef(null);
+  const globeMeshRef = useRef(null);
 
   useEffect(() => {
     driveRef.current = clamp01(drive);
@@ -108,6 +117,80 @@ function HolographicGlobe({
     insideViewRef.current = insideView;
   }, [insideView]);
 
+  // Texture loading effect
+  useEffect(() => {
+    if (!textureUrl) return;
+
+    const loadTexture = (url) => {
+      textureLoaderRef.current.load(
+        url,
+        (texture) => {
+          texture.wrapS = THREE.RepeatWrapping;
+          texture.wrapT = THREE.RepeatWrapping;
+          texture.minFilter = THREE.LinearFilter;
+          texture.magFilter = THREE.LinearFilter;
+          
+          // Update globe mesh if it exists
+          if (globeMeshRef.current && globeMeshRef.current.material) {
+            globeMeshRef.current.material.map = texture;
+            globeMeshRef.current.material.needsUpdate = true;
+          }
+          
+          currentTextureUrlRef.current = url;
+          if (onTextureUpdate) {
+            onTextureUpdate({ success: true, url });
+          }
+          console.log('✅ Loaded texture from Digital Ocean:', url);
+        },
+        undefined,
+        (error) => {
+          console.warn('⚠️ Failed to load texture:', error);
+          if (onTextureUpdate) {
+            onTextureUpdate({ success: false, error: error.message });
+          }
+        }
+      );
+    };
+
+    // Load texture on mount
+    loadTexture(textureUrl);
+
+    // Poll for texture changes every 30 seconds
+    const pollInterval = setInterval(() => {
+      // Check if URL changed or add cache-bust parameter
+      const cacheBustUrl = textureUrl.includes('?') 
+        ? `${textureUrl}&t=${Date.now()}`
+        : `${textureUrl}?t=${Date.now()}`;
+      
+      // Only reload if the original URL is different
+      if (textureUrl !== currentTextureUrlRef.current) {
+        loadTexture(cacheBustUrl);
+      }
+    }, 30000);
+
+    return () => clearInterval(pollInterval);
+  }, [textureUrl, onTextureUpdate]);
+
+  // Normal map loading effect
+  useEffect(() => {
+    if (!normalMapUrl) return;
+
+    textureLoaderRef.current.load(
+      normalMapUrl,
+      (texture) => {
+        if (globeMeshRef.current && globeMeshRef.current.material) {
+          globeMeshRef.current.material.normalMap = texture;
+          globeMeshRef.current.material.needsUpdate = true;
+        }
+        console.log('✅ Loaded normal map from Digital Ocean:', normalMapUrl);
+      },
+      undefined,
+      (error) => {
+        console.warn('⚠️ Failed to load normal map:', error);
+      }
+    );
+  }, [normalMapUrl]);
+
   useEffect(() => {
     const mount = mountRef.current;
     if (!mount) {
@@ -115,6 +198,7 @@ function HolographicGlobe({
     }
 
     const scene = new THREE.Scene();
+    sceneRef.current = scene; // Store reference for texture management
     const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 100);
     camera.position.set(0, 0, 3.8);
 
@@ -295,8 +379,22 @@ function HolographicGlobe({
           float vortex = sin(ang * 16.0 - uTime * cs * (4.2 + uEnergy * 5.4) + r * 44.0);
           float tunnel = exp(-r * (8.0 - uEnergy * 2.0));
           float tunnelPulse = 0.55 + 0.45 * sin(uTime * cs * (5.8 + uDistortion * 7.6) - r * 34.0);
-          vec3 interiorTint = mix(vec3(0.35, 0.92, 1.0), vec3(1.0, 0.48, 0.86), 0.5 + 0.5 * sin(uTime * cs * 2.0 + ang * 2.0));
-          float interiorAmt = uInsideAmount * (0.5 + uEnergy * 0.65);
+          
+          // Rich interior color palette with more vibrant cycling
+          vec3 interiorColor1 = vec3(0.35, 0.92, 1.0);   // Bright cyan
+          vec3 interiorColor2 = vec3(1.0, 0.35, 0.88);   // Magenta
+          vec3 interiorColor3 = vec3(1.0, 0.55, 0.22);   // Warm orange
+          vec3 interiorColor4 = vec3(0.22, 1.0, 0.65);   // Bright mint
+          vec3 interiorColor5 = vec3(0.88, 0.35, 1.0);   // Violet
+          
+          float colorPhase1 = uTime * cs * 1.6 + ang * 3.2;
+          float colorPhase2 = uTime * cs * 1.3 - ang * 2.8;
+          vec3 interiorTint = mix(interiorColor1, interiorColor2, 0.5 + 0.5 * sin(colorPhase1));
+          interiorTint = mix(interiorTint, interiorColor3, 0.5 + 0.5 * sin(colorPhase1 + 1.047));
+          interiorTint = mix(interiorTint, interiorColor4, 0.5 + 0.5 * sin(colorPhase2));
+          interiorTint = mix(interiorTint, interiorColor5, 0.5 + 0.5 * sin(colorPhase2 + 1.047));
+          
+          float interiorAmt = uInsideAmount * (0.65 + uEnergy * 0.80);
 
           // Base color built on hemisphere + diffuse so dark side is genuinely dark
           vec3 deepCore = vec3(0.01, 0.018, 0.04);
@@ -306,7 +404,14 @@ function HolographicGlobe({
           color += uGlow3 * (0.08 + 0.13 * cos(uTime * 0.9 + vUv.y * 12.0));
           color = mix(color, color + triad * 0.28, 0.2 + uEnergy * 0.42);
           color += triad * scanLines;
-          color += interiorTint * tunnel * tunnelPulse * (0.25 + 0.75 * abs(vortex)) * interiorAmt;
+          
+          // Enhanced interior effect with more vibrant colors
+          float interiorIntensity = (0.35 + 0.85 * abs(vortex)) * interiorAmt;
+          color += interiorTint * tunnel * tunnelPulse * interiorIntensity;
+          
+          // Add extra color layers to the interior
+          color += interiorTint * 0.45 * tunnel * (0.3 + 0.7 * sin(uTime * cs * 3.2 + ang * 4.0)) * uInsideAmount * 0.8;
+          color += interiorTint * 0.38 * tunnel * tunnelPulse * (0.25 + 0.75 * cos(uTime * cs * 2.4 - ang * 3.0)) * uInsideAmount * 0.7;
 
           // Apply directional shading — this is what makes it read as 3D
           color *= 0.18 + diffuse * 0.82;
@@ -324,9 +429,10 @@ function HolographicGlobe({
           color += vec3(0.8, 0.94, 1.0) * flare * (0.4 + uEnergy * 0.6);
 
           // Subtle chromatic aberration feel in interior mode.
-          float fringe = fresnel * uInsideAmount * (0.08 + uEnergy * 0.12);
-          color.r += fringe * (0.55 + 0.45 * sin(uTime * 2.3));
-          color.b += fringe * (0.45 + 0.55 * cos(uTime * 2.0));
+          float fringe = fresnel * uInsideAmount * (0.12 + uEnergy * 0.18);
+          color.r += fringe * (0.75 + 0.25 * sin(uTime * 2.3 + ang * 2.0)) * 1.2;
+          color.g += fringe * (0.55 + 0.45 * sin(uTime * 1.9 - ang * 1.5)) * 0.9;
+          color.b += fringe * (0.65 + 0.35 * cos(uTime * 2.0 + ang * 2.5)) * 1.1;
 
           float alpha = 0.72 + fresnel * 0.26 + uPulse * 0.06;
           gl_FragColor = vec4(color, alpha);
@@ -335,6 +441,7 @@ function HolographicGlobe({
     });
 
     const globe = new THREE.Mesh(geometry, material);
+    globeMeshRef.current = globe; // Store reference for texture updates
     group.add(globe);
 
     const coreUniforms = {

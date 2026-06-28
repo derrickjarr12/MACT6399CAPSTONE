@@ -1139,5 +1139,35 @@ pre {
   }
 }
 
+/* Digital Ocean Texture Controls */
+.texture-status {
+  padding: 0.5rem;
+  border-radius: 0.35rem;
+  margin-top: 0.5rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  text-align: center;
+  border: 1px solid;
+}
+
+.texture-status.success {
+  background-color: rgba(164, 255, 143, 0.15);
+  border-color: #a4ff8f;
+  color: #a4ff8f;
+}
+
+.texture-status.error {
+  background-color: rgba(255, 120, 143, 0.15);
+  border-color: #ff788f;
+  color: #ff788f;
+}
+
+.settings-hint {
+  font-size: 0.85rem;
+  color: var(--text-dim);
+  margin-top: 0.5rem;
+  font-style: italic;
+}
+
 
 

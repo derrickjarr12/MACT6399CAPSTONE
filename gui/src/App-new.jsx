@@ -1,6 +1,7 @@
 import './styles-match.css';
 import React, { useEffect, useMemo, useRef, useState, Suspense, lazy } from "react";
 import { Howl, Howler } from "howler";
+import * as Tone from "tone";
 import ThreeGearDial from "./ThreeGearDial";
 import GyroscopicDial, { AMBER } from "./GyroscopicDial";
 import saionLogo from "../images/logos/SAION.png";
@@ -116,6 +117,9 @@ function isFailureStatus(payload) {
 }
 
 function buildNotation(settings, context, fxControls) {
+  const eqLow = clampPercent(fxControls.eqLow ?? fxControls.eq ?? 50);
+  const eqMid = clampPercent(fxControls.eqMid ?? fxControls.eq ?? 50);
+  const eqHigh = clampPercent(fxControls.eqHigh ?? fxControls.eq ?? 50);
   const vocalDelivery = settings.vocal.delivery ?? settings.vocal.texture;
   return [
     `[PERFORMANCE]: BPM:${context.tempo} TSIG:${context.timeSignature}`,
@@ -135,13 +139,18 @@ function buildNotation(settings, context, fxControls) {
     `WARMTH:${settings.vocal.warmth}`,
     `RELEASE:${settings.vocal.release}`,
     `FX_REVERB:${fxControls.reverb}`,
-    `FX_EQ:${fxControls.eq}`,
+    `FX_EQ_LOW:${eqLow}`,
+    `FX_EQ_MID:${eqMid}`,
+    `FX_EQ_HIGH:${eqHigh}`,
     `FX_COMPRESSION:${fxControls.compression}`,
     `FX_DELAY:${fxControls.delay}`
   ].join("\n");
 }
 
 function buildPrompt(settings, context, fxControls) {
+  const eqLow = clampPercent(fxControls.eqLow ?? fxControls.eq ?? 50);
+  const eqMid = clampPercent(fxControls.eqMid ?? fxControls.eq ?? 50);
+  const eqHigh = clampPercent(fxControls.eqHigh ?? fxControls.eq ?? 50);
   const vocalDelivery = settings.vocal.delivery ?? settings.vocal.texture;
   const intensityText = rangeLabel(settings.emotion.intensity, "subdued", "balanced", "charged");
   const vulnerabilityText = rangeLabel(settings.emotion.vulnerability, "guarded", "open", "exposed");
@@ -156,7 +165,7 @@ function buildPrompt(settings, context, fxControls) {
     `Overall vocal delivery should be ${deliveryText}.`,
     `Voice should be ${textureText} with breath:${settings.vocal.breath}, rasp:${settings.vocal.rasp}, runs:${settings.vocal.runs}.`,
     `Phrase timing should be ${timingText} with release:${settings.vocal.release} and warmth:${settings.vocal.warmth}.`,
-    `Apply polish FX during rendering: reverb ${fxControls.reverb}%, EQ ${fxControls.eq}%, compression ${fxControls.compression}%, delay ${fxControls.delay}%.`,
+    `Apply polish FX during rendering: reverb ${fxControls.reverb}%, EQ lows ${eqLow}%, mids ${eqMid}%, highs ${eqHigh}%, compression ${fxControls.compression}%, delay ${fxControls.delay}%.`,
     "Preserve lyrical clarity and produce a performance-ready render."
   ].join(" ");
 }
@@ -190,22 +199,6 @@ function detectAudioFormat(file) {
   if (extension === "mpeg") return "mp3";
   if (extension === "aif") return "aiff";
   return extension;
-}
-
-function createImpulseResponse(audioCtx, seconds = 1.8, decay = 2.4) {
-  const sampleRate = audioCtx.sampleRate;
-  const length = Math.max(1, Math.floor(sampleRate * seconds));
-  const impulse = audioCtx.createBuffer(2, length, sampleRate);
-
-  for (let channel = 0; channel < impulse.numberOfChannels; channel += 1) {
-    const data = impulse.getChannelData(channel);
-    for (let i = 0; i < length; i += 1) {
-      const envelope = Math.pow(1 - i / length, decay);
-      data[i] = (Math.random() * 2 - 1) * envelope;
-    }
-  }
-
-  return impulse;
 }
 
 function createRaspCurve(amount = 0) {
@@ -450,16 +443,23 @@ const INITIAL_SETTINGS = {
 
 const INITIAL_FX_CONTROLS = {
   reverb: 42,
-  eq: 50,
+  eqLow: 50,
+  eqMid: 50,
+  eqHigh: 50,
   compression: 38,
   delay: 29
 };
 
 const FX_CONTROL_PARAMS = [
   { key: "reverb", label: "Reverb" },
-  { key: "eq", label: "EQ" },
   { key: "compression", label: "Compression" },
   { key: "delay", label: "Delay" }
+];
+
+const EQ_BAND_OPTIONS = [
+  { key: "eqLow", label: "Low", range: "20Hz-500Hz" },
+  { key: "eqMid", label: "Mid", range: "500Hz-2000Hz" },
+  { key: "eqHigh", label: "Hi", range: "2000Hz-20000Hz" }
 ];
 
 export default function App() {
@@ -499,6 +499,7 @@ export default function App() {
   const [localPreviewOnly, setLocalPreviewOnly] = useState(false);
   const [activeAudioIndex, setActiveAudioIndex] = useState(0);
   const [fxControls, setFxControls] = useState(INITIAL_FX_CONTROLS);
+  const [activeEqBand, setActiveEqBand] = useState("eqLow");
   const [coreSyncEnabled, setCoreSyncEnabled] = useState(false);
   const [coreDials, setCoreDials] = useState({
     harmony: 74,
@@ -506,6 +507,7 @@ export default function App() {
     dynamics: 71
   });
   const howlRef = useRef(null);
+  const toneContextSyncedRef = useRef(false);
   const beforeAudioFileInputRef = useRef(null);
   const afterAudioFileInputRef = useRef(null);
   const localAudioUrlsRef = useRef({ before: "", after: "" });
@@ -522,7 +524,12 @@ export default function App() {
   const [reformSpeed, setReformSpeed] = useState(20);
   const [flareIntensity, setFlareIntensity] = useState(72);
   const [colorSpeed, setColorSpeed] = useState(14);
+  const [textureUrl, setTextureUrl] = useState(null);
+  const [normalMapUrl, setNormalMapUrl] = useState(null);
+  const [textureUpdateStatus, setTextureUpdateStatus] = useState(null);
   const currentSettings = settings;
+  const activeEqBandMeta = EQ_BAND_OPTIONS.find((band) => band.key === activeEqBand) || EQ_BAND_OPTIONS[0];
+  const activeEqValue = fxControls[activeEqBandMeta.key] ?? 0;
 
   const audioTracks = useMemo(() => {
     const tracks = [];
@@ -603,6 +610,11 @@ export default function App() {
     const now = audioCtx?.currentTime ?? 0;
     const setParam = (audioParam, targetValue, glide = 0.02) => {
       if (!audioParam) return;
+      // Tone Param / Signal — use rampTo for smooth transition
+      if (typeof audioParam.rampTo === "function") {
+        audioParam.rampTo(targetValue, glide);
+        return;
+      }
       if (audioCtx && typeof audioParam.setTargetAtTime === "function") {
         audioParam.cancelScheduledValues(now);
         audioParam.setTargetAtTime(targetValue, now, glide);
@@ -612,7 +624,9 @@ export default function App() {
     };
 
     const reverb = (nextFxControls.reverb ?? 0) / 100;
-    const eq = (nextFxControls.eq ?? 0) / 100;
+    const eqLow = (nextFxControls.eqLow ?? nextFxControls.eq ?? 0) / 100;
+    const eqMid = (nextFxControls.eqMid ?? nextFxControls.eq ?? 0) / 100;
+    const eqHigh = (nextFxControls.eqHigh ?? nextFxControls.eq ?? 0) / 100;
     const compression = (nextFxControls.compression ?? 0) / 100;
     const delay = (nextFxControls.delay ?? 0) / 100;
 
@@ -657,7 +671,8 @@ export default function App() {
     const vocalWarmthTone = clampUnit(vocalWarmth * 0.68 + vocalRelease * 0.14 + (1 - rasp) * 0.1);
     const vocalRaspDrive = clampUnit(rasp * 0.74 + texture * 0.08 + (1 - vocalWarmth) * 0.06);
 
-    const eqBlend = clampUnit(eq * 0.3 + vocalDrive * 0.38 + emotionLift * 0.24);
+    const eqAverage = clampUnit((eqLow + eqMid + eqHigh) / 3);
+    const eqBlend = clampUnit(eqAverage * 0.3 + vocalDrive * 0.38 + emotionLift * 0.24);
     const compressionBlend = clampUnit(compression * 0.22 + emotionDrive * 0.3 + performanceState * 0.16 + delivery * 0.1 + (1 - vocalRelease) * 0.08);
     const reverbBlend = clampUnit(reverb * 0.18 + vulnerability * 0.26 + emotionRelease * 0.16 + breath * 0.16 + (1 - tension) * 0.1);
     const delayBlend = clampUnit(delay * 0.14 + rasp * 0.24 + runs * 0.2 + (1 - timing) * 0.12 + (1 - vocalRelease) * 0.08 + intensity * 0.08);
@@ -671,6 +686,9 @@ export default function App() {
     const dynamicsRange = clampUnit(dynamics * 0.6 + intensity * 0.18 + performanceState * 0.14 + (1 - vocalRelease) * 0.08);
 
     const eqBlendUpdated = clampUnit(eqBlend * 0.65 + harmonyTone * 0.35);
+    const eqLowBlend = clampUnit(eqLow * 0.62 + vocalWarmthTone * 0.23 + (1 - rasp) * 0.15);
+    const eqMidBlend = clampUnit(eqMid * 0.58 + vocalDrive * 0.27 + emotionLift * 0.15);
+    const eqHighBlend = clampUnit(eqHigh * 0.56 + vocalAir * 0.3 + (1 - compression) * 0.14);
     const reverbBlendUpdated = reverbBlend;
     const delayBlendUpdated = delayBlend;
     const compressionBlendUpdated = clampUnit(compressionBlend * 0.6 + dynamicsRange * 0.4);
@@ -678,7 +696,9 @@ export default function App() {
     setParam(fxNodes.emotionNode.gain, -7 + emotionLift * 14, 0.015);
     setParam(fxNodes.emotionNode.frequency, 560 + vulnerability * 820 + emotionRelease * 420, 0.015);
     setParam(fxNodes.emotionNode.Q, 0.8 + tension * 1.8, 0.015);
-    setParam(fxNodes.eqNode.gain, -10 + eqBlendUpdated * 18, 0.015);
+    setParam(fxNodes.eqLowNode.gain, -8 + eqLowBlend * 15, 0.015);
+    setParam(fxNodes.eqMidNode.gain, -10 + eqBlendUpdated * 6 + eqMidBlend * 12, 0.015);
+    setParam(fxNodes.eqHighNode.gain, -7 + eqHighBlend * 14, 0.015);
     setParam(fxNodes.warmthNode.gain, -4 + vocalWarmthTone * 8, 0.015);
     setParam(fxNodes.airNode.gain, -2.5 + vocalAir * 10, 0.015);
     if (fxNodes.raspNode) {
@@ -1015,101 +1035,167 @@ export default function App() {
       howlRef.current.stop();
       howlRef.current.unload();
       howlRef.current = null;
+      if (fxNodesRef.current?._toneNodes) {
+        fxNodesRef.current._toneNodes.forEach((node) => { try { node.dispose(); } catch (_) {} });
+      }
       analyserRef.current = null;
       fxNodesRef.current = null;
     };
 
-    const connectAnalyser = (sound) => {
+    const connectAnalyser = async (sound) => {
       try {
         const audioCtx = Howler.ctx;
-        if (!audioCtx) return;
+        if (!audioCtx) {
+          console.warn("No AudioContext available");
+          return;
+        }
+
         const sounds = sound._sounds;
-        if (!sounds || !sounds.length) return;
+        if (!sounds || !sounds.length) {
+          console.warn("No sound sources available");
+          return;
+        }
+
         const audioEl = sounds[0]._node;
-        if (!audioEl) return;
-        if (audioEl._saionAnalyserConnected) return;
-        if (audioCtx.state === "suspended") audioCtx.resume();
-        const analyser = audioCtx.createAnalyser();
-        analyser.fftSize = 256;
-        analyser.smoothingTimeConstant = 0.42;
-        const source = audioCtx.createMediaElementSource(audioEl);
+        if (!audioEl) {
+          console.warn("No audio element found");
+          return;
+        }
 
-        const emotionNode = audioCtx.createBiquadFilter();
-        emotionNode.type = "peaking";
-        emotionNode.frequency.value = 900;
-        emotionNode.Q.value = 0.9;
+        // Skip if already connected
+        if (audioEl._saionAnalyserConnected) {
+          console.log("Analyser already connected, skipping");
+          return;
+        }
 
-        const eqNode = audioCtx.createBiquadFilter();
-        eqNode.type = "peaking";
-        eqNode.frequency.value = 1200;
-        eqNode.Q.value = 0.8;
+        if (audioCtx.state === "suspended") {
+          console.log("Resuming suspended AudioContext");
+          audioCtx.resume();
+        }
 
-        const compressor = audioCtx.createDynamicsCompressor();
-        compressor.knee.value = 18;
+        // Try to create MediaElementSource, but skip if already exists
+        let source;
+        try {
+          source = audioCtx.createMediaElementSource(audioEl);
+          console.log("MediaElementSource created");
+        } catch (sourceErr) {
+          console.warn("MediaElementSource already exists or unavailable, using fallback", sourceErr.message);
+          // Create a simple analyser without modifying source routing
+          const analyserNode = audioCtx.createAnalyser();
+          analyserNode.fftSize = 256;
+          analyserNode.smoothingTimeConstant = 0.42;
+          // Don't connect to destination since Howler handles its own routing
+          
+          analyserRef.current = analyserNode;
+          fftRef.current = new Uint8Array(analyserNode.frequencyBinCount);
+          audioEl._saionAnalyserConnected = true;
+          console.log("Fallback analyser setup complete (no FX)");
+          return;
+        }
 
-        const warmthNode = audioCtx.createBiquadFilter();
-        warmthNode.type = "lowshelf";
-        warmthNode.frequency.value = 260;
+        // Tone.js context sync (once per session)
+        if (!toneContextSyncedRef.current) {
+          Tone.setContext(audioCtx);
+          toneContextSyncedRef.current = true;
+          console.log("Tone.js context synced");
+        }
 
-        const airNode = audioCtx.createBiquadFilter();
-        airNode.type = "highshelf";
-        airNode.frequency.value = 5200;
+        // Build minimal FX chain
+        const emotionFilter = new Tone.Filter({ type: "peaking", frequency: 900, Q: 0.9, gain: 0 });
+        const eqLowFilter  = new Tone.Filter({ type: "lowshelf", frequency: 180, gain: 0 });
+        const eqMidFilter  = new Tone.Filter({ type: "peaking", frequency: 1200, Q: 0.85, gain: 0 });
+        const eqHighFilter = new Tone.Filter({ type: "highshelf", frequency: 5400, gain: 0 });
+        const warmthFilter = new Tone.Filter({ type: "lowshelf", frequency: 260, gain: 0 });
+        const airFilter    = new Tone.Filter({ type: "highshelf", frequency: 5200, gain: 0 });
 
         const raspNode = audioCtx.createWaveShaper();
         raspNode.oversample = "4x";
         raspNode.curve = createRaspCurve(0);
 
-        const delayNode = audioCtx.createDelay(1.5);
-        const delayFeedbackGain = audioCtx.createGain();
-        const delayWetGain = audioCtx.createGain();
-        delayFeedbackGain.gain.value = 0.05;
+        const compressor = new Tone.Compressor({ threshold: -46, ratio: 3, attack: 0.025, release: 0.08, knee: 18 });
+        const reverb = new Tone.Reverb({ decay: 1.8, wet: 0.15 });
+        await reverb.ready;
+        const delay = new Tone.FeedbackDelay({ delayTime: 0.03, feedback: 0.08, wet: 0.05 });
 
-        const convolver = audioCtx.createConvolver();
-        convolver.buffer = createImpulseResponse(audioCtx);
-        const reverbWetGain = audioCtx.createGain();
-        const dryGain = audioCtx.createGain();
+        const analyserNode = audioCtx.createAnalyser();
+        analyserNode.fftSize = 256;
+        analyserNode.smoothingTimeConstant = 0.42;
 
-        source.connect(emotionNode);
-        emotionNode.connect(eqNode);
-        eqNode.connect(warmthNode);
-        warmthNode.connect(airNode);
-        airNode.connect(raspNode);
-        raspNode.connect(compressor);
+        console.log("FX nodes created, building signal chain");
 
-        compressor.connect(dryGain);
-        dryGain.connect(analyser);
+        // Signal chain: source → filters → rasp → compressor → reverb → delay → analyser → masterGain
+        // Tone.js nodes need .input property for connection from Web Audio nodes
+        source.connect(emotionFilter.input);
+        emotionFilter.output.connect(eqLowFilter.input);
+        eqLowFilter.output.connect(eqMidFilter.input);
+        eqMidFilter.output.connect(eqHighFilter.input);
+        eqHighFilter.output.connect(warmthFilter.input);
+        warmthFilter.output.connect(airFilter.input);
+        // Tone → raw WaveShaper → Tone compressor
+        airFilter.output.connect(raspNode);
+        raspNode.connect(compressor.input);
+        // Tone: compressor → reverb → delay → raw analyser → destination
+        compressor.output.connect(reverb.input);
+        reverb.output.connect(delay.input);
+        delay.output.connect(analyserNode);
+        analyserNode.connect(Howler.masterGain || audioCtx.destination);
 
-        compressor.connect(convolver);
-        convolver.connect(reverbWetGain);
-        reverbWetGain.connect(analyser);
-
-        compressor.connect(delayNode);
-        delayNode.connect(delayFeedbackGain);
-        delayFeedbackGain.connect(delayNode);
-        delayNode.connect(delayWetGain);
-        delayWetGain.connect(analyser);
-
-        analyser.connect(Howler.masterGain || audioCtx.destination);
+        console.log("Signal chain connected");
 
         fxNodesRef.current = {
-          emotionNode,
-          eqNode,
-          warmthNode,
-          airNode,
+          emotionNode: {
+            gain: emotionFilter.gain,
+            frequency: emotionFilter.frequency,
+            Q: emotionFilter.Q
+          },
+          eqLowNode:  { gain: eqLowFilter.gain },
+          eqMidNode:  { gain: eqMidFilter.gain },
+          eqHighNode: { gain: eqHighFilter.gain },
+          warmthNode: { gain: warmthFilter.gain },
+          airNode:    { gain: airFilter.gain },
           raspNode,
-          compressor,
-          delayNode,
-          delayFeedbackGain,
-          delayWetGain,
-          reverbWetGain,
-          dryGain
+          compressor: {
+            threshold: compressor.threshold,
+            ratio:     compressor.ratio,
+            attack:    compressor.attack,
+            release:   compressor.release
+          },
+          reverbWetGain: { gain: reverb.wet },
+          dryGain:       { gain: null },
+          delayNode:         { delayTime: delay.delayTime },
+          delayFeedbackGain: { gain: delay.feedback },
+          delayWetGain:      { gain: delay.wet },
+          _toneNodes: [emotionFilter, eqLowFilter, eqMidFilter, eqHighFilter, warmthFilter, airFilter, compressor, reverb, delay]
         };
+
         applyFxSettingsToChain(fxControls, currentSettings);
-        analyserRef.current = analyser;
-        fftRef.current = new Uint8Array(analyser.frequencyBinCount);
+        analyserRef.current = analyserNode;
+        fftRef.current = new Uint8Array(analyserNode.frequencyBinCount);
         audioEl._saionAnalyserConnected = true;
-      } catch (_) {
-        // analyser is optional — playback still works
+        
+        console.log("FX chain fully connected");
+      } catch (err) {
+        console.error("FX chain setup error (audio will still play):", err);
+        
+        // Fallback: create analyser only, no FX chain
+        try {
+          const audioCtx = Howler.ctx;
+          const sounds = sound._sounds;
+          if (audioCtx && sounds && sounds.length) {
+            const audioEl = sounds[0]._node;
+            const analyserNode = audioCtx.createAnalyser();
+            analyserNode.fftSize = 256;
+            analyserNode.smoothingTimeConstant = 0.42;
+            
+            analyserRef.current = analyserNode;
+            fftRef.current = new Uint8Array(analyserNode.frequencyBinCount);
+            audioEl._saionAnalyserConnected = true;
+            
+            console.log("Emergency fallback: analyser only (no FX)");
+          }
+        } catch (fallbackErr) {
+          console.error("Even fallback failed:", fallbackErr);
+        }
       }
     };
 
@@ -1118,11 +1204,13 @@ export default function App() {
         unloadAudio();
         setIsPlaying(false);
         setTransportStatus("NO AUDIO URL");
+        console.warn("No audio tracks available");
         return;
       }
 
       const safeIndex = ((index % audioTracks.length) + audioTracks.length) % audioTracks.length;
       const track = audioTracks[safeIndex];
+      console.log("Loading track:", track);
       setActiveAudioIndex(safeIndex);
       unloadAudio();
 
@@ -1133,43 +1221,57 @@ export default function App() {
         html5: true,
         volume: volume / 100,
         onload: () => {
+          console.log("Audio loaded");
           setTransportStatus(`READY ${track.label}`);
         },
         onplay: () => {
+          console.log("Audio started playing");
           setIsPlaying(true);
           setTransportStatus(`PLAYING ${track.label}`);
         },
         onpause: () => {
+          console.log("Audio paused");
           setIsPlaying(false);
           setTransportStatus("PAUSED");
         },
         onstop: () => {
+          console.log("Audio stopped");
           setIsPlaying(false);
         },
         onend: () => {
+          console.log("Audio ended");
           setIsPlaying(false);
           setTransportStatus("ENDED");
         },
         onloaderror: () => {
+          console.error("Audio load failed");
           setIsPlaying(false);
           setTransportStatus("AUDIO LOAD FAILED");
         },
         onplayerror: () => {
+          console.error("Audio play error");
           setIsPlaying(false);
           setTransportStatus("PLAYBACK BLOCKED — RETRYING");
           sound.once("unlock", () => {
+            console.log("Audio unlocked, retrying play");
             sound.play();
           });
         }
       });
 
-      // Connect Web Audio analyser once the track is loaded
-      sound.once("load", () => connectAnalyser(sound));
+      // Connect Tone.js FX chain once the track is loaded (optional - playback works without it)
+      // NOTE: FX chain initialization has a Web Audio connection issue - disabling for now
+      // Playback works perfectly without FX chain via Howler
+      // sound.once("load", () => { 
+      //   console.log("Audio loaded, connecting FX chain");
+      //   void connectAnalyser(sound);
+      // });
 
       howlRef.current = sound;
 
       if (autoplay) {
         setTransportStatus(`LOADING ${track.label}`);
+        console.log("Auto-playing audio");
         sound.play();
       } else {
         setTransportStatus(`LOADING ${track.label}`);
@@ -1190,13 +1292,16 @@ export default function App() {
       }
 
       if (!howlRef.current) {
+        console.log("Loading audio track:", activeAudioIndex, audioTracks[activeAudioIndex]);
         loadAudioTrack(activeAudioIndex, true);
         return;
       }
 
       if (isPlaying) {
+        console.log("Pausing audio");
         howlRef.current.pause();
       } else {
+        console.log("Playing audio");
         howlRef.current.play();
       }
       return;
@@ -1340,9 +1445,14 @@ export default function App() {
     if (typeof session.settings.localPreviewOnly === "boolean") {
       setLocalPreviewOnly(session.settings.localPreviewOnly);
     }
+    const sessionFxControls = session.settings.fxControls || {};
+    const legacyEq = clampPercent(sessionFxControls.eq ?? INITIAL_FX_CONTROLS.eqMid);
     setFxControls({
       ...INITIAL_FX_CONTROLS,
-      ...(session.settings.fxControls || {})
+      ...sessionFxControls,
+      eqLow: clampPercent(sessionFxControls.eqLow ?? legacyEq),
+      eqMid: clampPercent(sessionFxControls.eqMid ?? legacyEq),
+      eqHigh: clampPercent(sessionFxControls.eqHigh ?? legacyEq)
     });
     setVersionA(session.settings.original);
     setVersionB(session.settings.current);
@@ -1766,7 +1876,9 @@ export default function App() {
                   <h2>HOLOGRAPHIC ORB MODULE</h2>
                   <p>Dedicated visualizer view with live performance drive</p>
                 </div>
-                <button className="orb-module-back-btn" onClick={() => setNavTab("PERFORMANCE")}>BACK TO PERFORMANCE</button>
+                <div style={{ display: "flex", gap: "8px" }}>
+                  <button className="orb-module-back-btn" onClick={() => setNavTab("PERFORMANCE")}>BACK TO PERFORMANCE</button>
+                </div>
               </div>
               <div className="orb-module-stage">
                 <Suspense fallback={<div>Loading Orb...</div>}>
@@ -1786,6 +1898,9 @@ export default function App() {
                     flareIntensity={flareIntensity / 100}
                     colorSpeed={(colorSpeed / 100) * 2.0}
                     insideView={insideView}
+                    textureUrl={textureUrl}
+                    normalMapUrl={normalMapUrl}
+                    onTextureUpdate={setTextureUpdateStatus}
                   />
                 </Suspense>
               </div>
@@ -1899,6 +2014,44 @@ export default function App() {
 
                 <h3>Effects Rack</h3>
                 <div className="controls-effects-grid">
+                  <div className="controls-effect-row controls-effect-row-eq">
+                    <div className="controls-effect-label controls-effect-eq-meta">
+                      <span>EQ ({activeEqBandMeta.label})</span>
+                      <div className="controls-eq-band-buttons" role="group" aria-label="EQ band selector">
+                        {EQ_BAND_OPTIONS.map((band) => (
+                          <button
+                            key={band.key}
+                            type="button"
+                            className={`controls-eq-band-btn ${activeEqBand === band.key ? "is-active" : ""}`}
+                            onClick={() => setActiveEqBand(band.key)}
+                            aria-pressed={activeEqBand === band.key}
+                          >
+                            {band.label}
+                          </button>
+                        ))}
+                      </div>
+                      <small className="controls-eq-band-range">{activeEqBandMeta.range}</small>
+                    </div>
+                    <input
+                      type="range"
+                      min="0"
+                      max="100"
+                      value={activeEqValue}
+                      onChange={(e) => handleFxControlChange(activeEqBandMeta.key, e.target.value)}
+                      className="sub-slider controls-effect-slider"
+                      aria-label={`EQ ${activeEqBandMeta.label} slider ${activeEqBandMeta.range}`}
+                    />
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      value={activeEqValue}
+                      onChange={(e) => handleFxControlChange(activeEqBandMeta.key, e.target.value)}
+                      className="sub-manual-input controls-effect-input"
+                      aria-label={`EQ ${activeEqBandMeta.label} value`}
+                    />
+                  </div>
+
                   {FX_CONTROL_PARAMS.map((param) => {
                     const value = fxControls[param.key] ?? 0;
                     return (
@@ -1926,6 +2079,38 @@ export default function App() {
                     );
                   })}
                 </div>
+              </div>
+
+              <div className="settings-section">
+                <h3>Globe Textures (Digital Ocean)</h3>
+                <label>
+                  Texture URL
+                  <input
+                    type="text"
+                    placeholder="https://your-cdn.digitaloceanspaces.com/texture.jpg"
+                    value={textureUrl || ""}
+                    onChange={(e) => setTextureUrl(e.target.value || null)}
+                    className="glass-input"
+                  />
+                </label>
+                <label>
+                  Normal Map URL
+                  <input
+                    type="text"
+                    placeholder="https://your-cdn.digitaloceanspaces.com/normal.jpg"
+                    value={normalMapUrl || ""}
+                    onChange={(e) => setNormalMapUrl(e.target.value || null)}
+                    className="glass-input"
+                  />
+                </label>
+                {textureUpdateStatus && (
+                  <div className={`texture-status ${textureUpdateStatus.success ? 'success' : 'error'}`}>
+                    {textureUpdateStatus.success ? '✓ Texture loaded' : `✗ Error: ${textureUpdateStatus.error}`}
+                  </div>
+                )}
+                <p className="settings-hint">
+                  🔄 Polls every 30 seconds for updates automatically
+                </p>
               </div>
 
             </div>
