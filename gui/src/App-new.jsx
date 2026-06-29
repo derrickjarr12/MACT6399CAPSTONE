@@ -1,10 +1,16 @@
 import './styles-match.css';
 import React, { useEffect, useMemo, useRef, useState, Suspense, lazy } from "react";
-import { Howl, Howler } from "howler";
 import * as Tone from "tone";
 import ThreeGearDial from "./ThreeGearDial";
 import GyroscopicDial, { AMBER } from "./GyroscopicDial";
 import saionLogo from "../images/logos/SAION.png";
+import atlantistImage from "../images/logos/Atlantist.png";
+import bubbleLipsImage from "../images/logos/Bubble_LIps.png";
+import buttonsImage from "../images/logos/buttons.png";
+import redKissImage from "../images/logos/Red_Kiss.png";
+import shotGlassImage from "../images/logos/Shot_Glass.png";
+import shotsImage from "../images/logos/Shots.jpeg";
+import zeroOneImage from "../images/logos/0_1.jpeg";
 const HolographicGlobe = lazy(() => import("./HolographicGlobe"));
 
 function CornerDial({ value, onChange, color, label, style }) {
@@ -120,7 +126,17 @@ function buildNotation(settings, context, fxControls) {
   const eqLow = clampPercent(fxControls.eqLow ?? fxControls.eq ?? 50);
   const eqMid = clampPercent(fxControls.eqMid ?? fxControls.eq ?? 50);
   const eqHigh = clampPercent(fxControls.eqHigh ?? fxControls.eq ?? 50);
-  const vocalDelivery = settings.vocal.delivery ?? settings.vocal.texture;
+  const vocalDelivery = clampPercent(settings.vocal.delivery ?? settings.vocal.texture ?? 50);
+  const emotionWarmth = clampPercent(settings.emotion.warmth ?? 50);
+  const emotionRelease = clampPercent(settings.emotion.release ?? 50);
+  const vocalTexture = clampPercent(settings.vocal.texture ?? 50);
+  const vocalState = clampPercent(settings.vocal.performanceState ?? 50);
+  const vocalBreath = clampPercent(settings.vocal.breath ?? 50);
+  const vocalRasp = clampPercent(settings.vocal.rasp ?? 50);
+  const vocalRuns = clampPercent(settings.vocal.runs ?? 50);
+  const vocalTiming = clampPercent(settings.vocal.timing ?? 50);
+  const vocalWarmth = clampPercent(settings.vocal.warmth ?? 50);
+  const vocalRelease = clampPercent(settings.vocal.release ?? 50);
   return [
     `[PERFORMANCE]: BPM:${context.tempo} TSIG:${context.timeSignature}`,
     `EMOTION:${context.emotionPreset}`,
@@ -130,14 +146,16 @@ function buildNotation(settings, context, fxControls) {
     `VULN:${settings.emotion.vulnerability}`,
     `CONF:${settings.emotion.confidence}`,
     `TENS:${settings.emotion.tension}`,
-    `TEXT:${settings.vocal.texture}`,
-    `STATE:${settings.vocal.performanceState}`,
-    `BREATH:${settings.vocal.breath}`,
-    `RASP:${settings.vocal.rasp}`,
-    `RUNS:${settings.vocal.runs}`,
-    `TIMING:${settings.vocal.timing}`,
-    `WARMTH:${settings.vocal.warmth}`,
-    `RELEASE:${settings.vocal.release}`,
+    `EMO_WARMTH:${emotionWarmth}`,
+    `EMO_RELEASE:${emotionRelease}`,
+    `TEXT:${vocalTexture}`,
+    `STATE:${vocalState}`,
+    `BREATH:${vocalBreath}`,
+    `RASP:${vocalRasp}`,
+    `RUNS:${vocalRuns}`,
+    `TIMING:${vocalTiming}`,
+    `WARMTH:${vocalWarmth}`,
+    `RELEASE:${vocalRelease}`,
     `FX_REVERB:${fxControls.reverb}`,
     `FX_EQ_LOW:${eqLow}`,
     `FX_EQ_MID:${eqMid}`,
@@ -147,27 +165,47 @@ function buildNotation(settings, context, fxControls) {
   ].join("\n");
 }
 
-function buildPrompt(settings, context, fxControls) {
+function buildPrompt(settings, context, fxControls, userPrompt = "") {
   const eqLow = clampPercent(fxControls.eqLow ?? fxControls.eq ?? 50);
   const eqMid = clampPercent(fxControls.eqMid ?? fxControls.eq ?? 50);
   const eqHigh = clampPercent(fxControls.eqHigh ?? fxControls.eq ?? 50);
-  const vocalDelivery = settings.vocal.delivery ?? settings.vocal.texture;
-  const intensityText = rangeLabel(settings.emotion.intensity, "subdued", "balanced", "charged");
-  const vulnerabilityText = rangeLabel(settings.emotion.vulnerability, "guarded", "open", "exposed");
-  const confidenceText = rangeLabel(settings.emotion.confidence, "uncertain", "steady", "assured");
+  const vocalDelivery = clampPercent(settings.vocal.delivery ?? settings.vocal.texture ?? 50);
+  const emotionIntensity = clampPercent(settings.emotion.intensity ?? 50);
+  const emotionVulnerability = clampPercent(settings.emotion.vulnerability ?? 50);
+  const emotionConfidence = clampPercent(settings.emotion.confidence ?? 50);
+  const emotionTension = clampPercent(settings.emotion.tension ?? 50);
+  const emotionWarmth = clampPercent(settings.emotion.warmth ?? 50);
+  const emotionRelease = clampPercent(settings.emotion.release ?? 50);
+  const vocalTexture = clampPercent(settings.vocal.texture ?? 50);
+  const vocalState = clampPercent(settings.vocal.performanceState ?? 50);
+  const vocalBreath = clampPercent(settings.vocal.breath ?? 50);
+  const vocalRasp = clampPercent(settings.vocal.rasp ?? 50);
+  const vocalRuns = clampPercent(settings.vocal.runs ?? 50);
+  const vocalTiming = clampPercent(settings.vocal.timing ?? 50);
+  const vocalWarmth = clampPercent(settings.vocal.warmth ?? 50);
+  const vocalRelease = clampPercent(settings.vocal.release ?? 50);
+  const intensityText = rangeLabel(emotionIntensity, "subdued", "balanced", "charged");
+  const vulnerabilityText = rangeLabel(emotionVulnerability, "guarded", "open", "exposed");
+  const confidenceText = rangeLabel(emotionConfidence, "uncertain", "steady", "assured");
+  const emotionWarmthText = rangeLabel(emotionWarmth, "cool", "balanced", "warm");
+  const emotionReleaseText = rangeLabel(emotionRelease, "restrained", "controlled", "open");
   const deliveryText = rangeLabel(vocalDelivery, "gentle", "controlled", "driving");
-  const textureText = rangeLabel(settings.vocal.texture, "smooth", "textured", "raspy");
-  const timingText = rangeLabel(settings.vocal.timing, "tight", "centered", "laid-back");
+  const textureText = rangeLabel(vocalTexture, "smooth", "textured", "raspy");
+  const timingText = rangeLabel(vocalTiming, "tight", "centered", "laid-back");
+  const trimmedUserPrompt = typeof userPrompt === "string" ? userPrompt.trim() : "";
 
   return [
     `Generate a ${context.emotionPreset.toLowerCase()} / ${context.vocalPreset.toLowerCase()} performance at ${context.tempo} BPM in ${context.timeSignature}.`,
+    trimmedUserPrompt ? `User creative notes: ${trimmedUserPrompt}` : null,
+    `Dial points: emotion intensity ${emotionIntensity}%, emotion vulnerability ${emotionVulnerability}%, emotion confidence ${emotionConfidence}%, emotion tension ${emotionTension}%, emotion warmth ${emotionWarmth}%, emotion release ${emotionRelease}%, vocal delivery ${vocalDelivery}%, vocal texture ${vocalTexture}%, vocal performance state ${vocalState}%, vocal breath ${vocalBreath}%, vocal rasp ${vocalRasp}%, vocal runs ${vocalRuns}%, vocal timing ${vocalTiming}%, vocal warmth ${vocalWarmth}%, vocal release ${vocalRelease}%.`,
     `Delivery should feel ${intensityText}, ${vulnerabilityText}, and ${confidenceText}.`,
+    `Emotional contour should stay ${emotionWarmthText} with a ${emotionReleaseText} phrase release.`,
     `Overall vocal delivery should be ${deliveryText}.`,
-    `Voice should be ${textureText} with breath:${settings.vocal.breath}, rasp:${settings.vocal.rasp}, runs:${settings.vocal.runs}.`,
-    `Phrase timing should be ${timingText} with release:${settings.vocal.release} and warmth:${settings.vocal.warmth}.`,
+    `Voice should be ${textureText} with breath:${vocalBreath}, rasp:${vocalRasp}, runs:${vocalRuns}.`,
+    `Phrase timing should be ${timingText} with release:${vocalRelease} and warmth:${vocalWarmth}.`,
     `Apply polish FX during rendering: reverb ${fxControls.reverb}%, EQ lows ${eqLow}%, mids ${eqMid}%, highs ${eqHigh}%, compression ${fxControls.compression}%, delay ${fxControls.delay}%.`,
     "Preserve lyrical clarity and produce a performance-ready render."
-  ].join(" ");
+  ].filter(Boolean).join(" ");
 }
 
 function downloadTextFile(filename, content, mimeType = "text/plain") {
@@ -426,7 +464,9 @@ const INITIAL_SETTINGS = {
     intensity: 68,
     vulnerability: 45,
     confidence: 55,
-    tension: 34
+    tension: 34,
+    warmth: 50,
+    release: 50
   },
   vocal: {
     delivery: 58,
@@ -460,6 +500,65 @@ const EQ_BAND_OPTIONS = [
   { key: "eqLow", label: "Low", range: "20Hz-500Hz" },
   { key: "eqMid", label: "Mid", range: "500Hz-2000Hz" },
   { key: "eqHigh", label: "Hi", range: "2000Hz-20000Hz" }
+];
+
+const TEXTURE_PRESETS = [
+  {
+    id: "saion",
+    label: "Saion",
+    thumbnailUrl: saionLogo,
+    textureUrl: saionLogo,
+    normalMapUrl: null
+  },
+  {
+    id: "atlantist",
+    label: "Atlantist",
+    thumbnailUrl: atlantistImage,
+    textureUrl: atlantistImage,
+    normalMapUrl: null
+  },
+  {
+    id: "bubble-lips",
+    label: "Bubble Lips",
+    thumbnailUrl: bubbleLipsImage,
+    textureUrl: bubbleLipsImage,
+    normalMapUrl: null
+  },
+  {
+    id: "buttons",
+    label: "Buttons",
+    thumbnailUrl: buttonsImage,
+    textureUrl: buttonsImage,
+    normalMapUrl: null
+  },
+  {
+    id: "red-kiss",
+    label: "Red Kiss",
+    thumbnailUrl: redKissImage,
+    textureUrl: redKissImage,
+    normalMapUrl: null
+  },
+  {
+    id: "shot-glass",
+    label: "Shot Glass",
+    thumbnailUrl: shotGlassImage,
+    textureUrl: shotGlassImage,
+    normalMapUrl: null
+  },
+  {
+    id: "shots",
+    label: "Shots",
+    thumbnailUrl: shotsImage,
+    textureUrl: shotsImage,
+    normalMapUrl: null
+  },
+  {
+    id: "zero-one",
+    label: "Zero One",
+    thumbnailUrl: zeroOneImage,
+    textureUrl: zeroOneImage,
+    normalMapUrl: null
+  }
 ];
 
 export default function App() {
@@ -507,6 +606,9 @@ export default function App() {
     dynamics: 71
   });
   const howlRef = useRef(null);
+  const audioContextRef = useRef(null);
+  const currentTrackIndexRef = useRef(-1);
+  const currentTrackUrlRef = useRef("");
   const toneContextSyncedRef = useRef(false);
   const beforeAudioFileInputRef = useRef(null);
   const afterAudioFileInputRef = useRef(null);
@@ -601,12 +703,29 @@ export default function App() {
     }));
   };
 
-  const applyFxSettingsToChain = (nextFxControls, nextSettings = currentSettings) => {
+  const handleTexturePresetSelect = (preset) => {
+    setTextureUrl(preset.textureUrl || null);
+    setNormalMapUrl(preset.normalMapUrl || null);
+    setTextureUpdateStatus(null);
+  };
+
+  const getAudioContext = () => {
+    if (audioContextRef.current) return audioContextRef.current;
+    const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextCtor) return null;
+    audioContextRef.current = new AudioContextCtor();
+    return audioContextRef.current;
+  };
+
+  const stageLeftTexturePresets = TEXTURE_PRESETS.slice(0, 4);
+  const stageRightTexturePresets = TEXTURE_PRESETS.slice(4, 8);
+
+  const applyFxSettingsToChain = (nextFxControls, nextSettings = currentSettings, coreDials = activeCoreDials) => {
     const fxNodes = fxNodesRef.current;
     if (!fxNodes) return;
 
     const clampUnit = (value) => Math.max(0, Math.min(1, value));
-    const audioCtx = Howler.ctx;
+    const audioCtx = getAudioContext();
     const now = audioCtx?.currentTime ?? 0;
     const setParam = (audioParam, targetValue, glide = 0.02) => {
       if (!audioParam) return;
@@ -677,9 +796,9 @@ export default function App() {
     const reverbBlend = clampUnit(reverb * 0.18 + vulnerability * 0.26 + emotionRelease * 0.16 + breath * 0.16 + (1 - tension) * 0.1);
     const delayBlend = clampUnit(delay * 0.14 + rasp * 0.24 + runs * 0.2 + (1 - timing) * 0.12 + (1 - vocalRelease) * 0.08 + intensity * 0.08);
 
-    const harmony = ((nextSettings?.harmony?.harmony ?? 50) / 100) || ((nextSettings?.core?.harmony ?? 50) / 100);
-    const rhythm = ((nextSettings?.rhythm?.rhythm ?? 50) / 100) || ((nextSettings?.core?.rhythm ?? 50) / 100);
-    const dynamics = ((nextSettings?.dynamics?.dynamics ?? 50) / 100) || ((nextSettings?.core?.dynamics ?? 50) / 100);
+    const harmony = ((coreDials?.harmony ?? 50) / 100);
+    const rhythm = ((coreDials?.rhythm ?? 50) / 100);
+    const dynamics = ((coreDials?.dynamics ?? 50) / 100);
 
     const harmonyTone = clampUnit(harmony * 0.6 + emotionWarmth * 0.2 + (1 - rasp) * 0.2);
     const rhythmTiming = clampUnit(rhythm * 0.5 + timing * 0.25 + (1 - tension) * 0.25);
@@ -693,28 +812,31 @@ export default function App() {
     const delayBlendUpdated = delayBlend;
     const compressionBlendUpdated = clampUnit(compressionBlend * 0.6 + dynamicsRange * 0.4);
 
-    setParam(fxNodes.emotionNode.gain, -7 + emotionLift * 14, 0.015);
+    const fxSendTarget = clampUnit(0.08 + harmony * 0.18 + rhythm * 0.22 + (1 - dynamics) * 0.18 + delayBlendUpdated * 0.14 + reverbBlendUpdated * 0.1);
+
+    setParam(fxNodes.sendGain?.gain, fxSendTarget, 0.02);
+    setParam(fxNodes.emotionNode.gain, -10 + emotionLift * 20, 0.015);
     setParam(fxNodes.emotionNode.frequency, 560 + vulnerability * 820 + emotionRelease * 420, 0.015);
-    setParam(fxNodes.emotionNode.Q, 0.8 + tension * 1.8, 0.015);
-    setParam(fxNodes.eqLowNode.gain, -8 + eqLowBlend * 15, 0.015);
-    setParam(fxNodes.eqMidNode.gain, -10 + eqBlendUpdated * 6 + eqMidBlend * 12, 0.015);
-    setParam(fxNodes.eqHighNode.gain, -7 + eqHighBlend * 14, 0.015);
-    setParam(fxNodes.warmthNode.gain, -4 + vocalWarmthTone * 8, 0.015);
-    setParam(fxNodes.airNode.gain, -2.5 + vocalAir * 10, 0.015);
+    setParam(fxNodes.emotionNode.Q, 0.7 + tension * 2.7, 0.015);
+    setParam(fxNodes.eqLowNode.gain, -14 + (eqLowBlend * 0.8 + (1 - harmony) * 0.2) * 24, 0.015);
+    setParam(fxNodes.eqMidNode.gain, -14 + (eqBlendUpdated * 0.45 + eqMidBlend * 0.35 + harmony * 0.2) * 24, 0.015);
+    setParam(fxNodes.eqHighNode.gain, -14 + (eqHighBlend * 0.7 + harmony * 0.3) * 24, 0.015);
+    setParam(fxNodes.warmthNode.gain, -7 + vocalWarmthTone * 13, 0.015);
+    setParam(fxNodes.airNode.gain, -5 + vocalAir * 16, 0.015);
     if (fxNodes.raspNode) {
       fxNodes.raspNode.curve = createRaspCurve(vocalRaspDrive);
     }
-    setParam(fxNodes.compressor.threshold, -46 + compressionBlendUpdated * 32, 0.025);
-    setParam(fxNodes.compressor.ratio, 1.6 + compressionBlendUpdated * 10.8, 0.025);
-    setParam(fxNodes.compressor.attack, 0.025 + (1 - rhythmTiming) * 0.03, 0.025);
-    setParam(fxNodes.compressor.release, 0.08 + (1 - rhythmTiming) * 0.4, 0.025);
+    setParam(fxNodes.compressor.threshold, -56 + (compressionBlendUpdated * 0.65 + (1 - dynamics) * 0.35) * 46, 0.025);
+    setParam(fxNodes.compressor.ratio, 1.4 + (compressionBlendUpdated * 0.5 + (1 - dynamics) * 0.5) * 18.6, 0.025);
+    setParam(fxNodes.compressor.attack, 0.006 + (1 - rhythmTiming) * 0.05, 0.025);
+    setParam(fxNodes.compressor.release, 0.05 + (1 - rhythmTiming) * 0.6, 0.025);
 
-    setParam(fxNodes.reverbWetGain.gain, 0.1 + reverbBlendUpdated * 0.84, 0.02);
-    setParam(fxNodes.dryGain.gain, 1 - reverbBlendUpdated * 0.64, 0.02);
+    setParam(fxNodes.reverbWetGain.gain, 0.25 + reverbBlendUpdated * 0.75, 0.02);
+    setParam(fxNodes.dryGain.gain, 1 - reverbBlendUpdated * 0.72, 0.02);
 
-    setParam(fxNodes.delayNode.delayTime, 0.03 + delayBlendUpdated * 0.54, 0.02);
-    setParam(fxNodes.delayFeedbackGain.gain, 0.08 + delayBlendUpdated * 0.68, 0.02);
-    setParam(fxNodes.delayWetGain.gain, 0.05 + delayBlendUpdated * 0.74, 0.02);
+    setParam(fxNodes.delayNode.delayTime, 0.02 + (delayBlendUpdated * 0.55 + (1 - rhythm) * 0.45) * 0.78, 0.02);
+    setParam(fxNodes.delayFeedbackGain.gain, 0.04 + (delayBlendUpdated * 0.6 + (1 - rhythm) * 0.4) * 0.86, 0.02);
+    setParam(fxNodes.delayWetGain.gain, 0.22 + delayBlendUpdated * 0.78, 0.02);
   };
 
   const analysisData = useMemo(() => ({
@@ -781,8 +903,9 @@ export default function App() {
   useEffect(() => {
     return () => {
       if (howlRef.current) {
-        howlRef.current.stop();
-        howlRef.current.unload();
+        howlRef.current.pause();
+        howlRef.current.removeAttribute("src");
+        howlRef.current.load();
         howlRef.current = null;
       }
 
@@ -819,12 +942,12 @@ export default function App() {
 
   useEffect(() => {
     if (!howlRef.current) return;
-    howlRef.current.volume(volume / 100);
+    howlRef.current.volume = volume / 100;
   }, [volume]);
 
   useEffect(() => {
-    applyFxSettingsToChain(fxControls, currentSettings);
-  }, [fxControls, currentSettings]);
+    applyFxSettingsToChain(fxControls, currentSettings, activeCoreDials);
+  }, [fxControls, currentSettings, activeCoreDials]);
 
   // Drive the holographic globe from live audio FFT data while playing
   useEffect(() => {
@@ -1032,9 +1155,12 @@ export default function App() {
   const triggerTransport = (action) => {
     const unloadAudio = () => {
       if (!howlRef.current) return;
-      howlRef.current.stop();
-      howlRef.current.unload();
+      howlRef.current.pause();
+      howlRef.current.removeAttribute("src");
+      howlRef.current.load();
       howlRef.current = null;
+      currentTrackIndexRef.current = -1;
+      currentTrackUrlRef.current = "";
       if (fxNodesRef.current?._toneNodes) {
         fxNodesRef.current._toneNodes.forEach((node) => { try { node.dispose(); } catch (_) {} });
       }
@@ -1042,21 +1168,13 @@ export default function App() {
       fxNodesRef.current = null;
     };
 
-    const connectAnalyser = async (sound) => {
+    const connectAnalyser = async (audioEl) => {
       try {
-        const audioCtx = Howler.ctx;
+        const audioCtx = getAudioContext();
         if (!audioCtx) {
           console.warn("No AudioContext available");
           return;
         }
-
-        const sounds = sound._sounds;
-        if (!sounds || !sounds.length) {
-          console.warn("No sound sources available");
-          return;
-        }
-
-        const audioEl = sounds[0]._node;
         if (!audioEl) {
           console.warn("No audio element found");
           return;
@@ -1073,7 +1191,8 @@ export default function App() {
           audioCtx.resume();
         }
 
-        // Try to create MediaElementSource, but skip if already exists
+        // Try to create MediaElementSource for an auxiliary FX send.
+        // This preserves Howler's original dry path and layers Tone.js quality FX on top.
         let source;
         try {
           source = audioCtx.createMediaElementSource(audioEl);
@@ -1100,22 +1219,24 @@ export default function App() {
           console.log("Tone.js context synced");
         }
 
-        // Build minimal FX chain
+        // Build auxiliary FX chain (wet effects only)
         const emotionFilter = new Tone.Filter({ type: "peaking", frequency: 900, Q: 0.9, gain: 0 });
         const eqLowFilter  = new Tone.Filter({ type: "lowshelf", frequency: 180, gain: 0 });
         const eqMidFilter  = new Tone.Filter({ type: "peaking", frequency: 1200, Q: 0.85, gain: 0 });
         const eqHighFilter = new Tone.Filter({ type: "highshelf", frequency: 5400, gain: 0 });
         const warmthFilter = new Tone.Filter({ type: "lowshelf", frequency: 260, gain: 0 });
         const airFilter    = new Tone.Filter({ type: "highshelf", frequency: 5200, gain: 0 });
+        const sendGain = audioCtx.createGain();
+        sendGain.gain.value = 0.16;
 
         const raspNode = audioCtx.createWaveShaper();
         raspNode.oversample = "4x";
         raspNode.curve = createRaspCurve(0);
 
         const compressor = new Tone.Compressor({ threshold: -46, ratio: 3, attack: 0.025, release: 0.08, knee: 18 });
-        const reverb = new Tone.Reverb({ decay: 1.8, wet: 0.15 });
+        const reverb = new Tone.Reverb({ decay: 1.8, wet: 1 });
         await reverb.ready;
-        const delay = new Tone.FeedbackDelay({ delayTime: 0.03, feedback: 0.08, wet: 0.05 });
+        const delay = new Tone.FeedbackDelay({ delayTime: 0.03, feedback: 0.08, wet: 1 });
 
         const analyserNode = audioCtx.createAnalyser();
         analyserNode.fftSize = 256;
@@ -1123,9 +1244,11 @@ export default function App() {
 
         console.log("FX nodes created, building signal chain");
 
-        // Signal chain: source → filters → rasp → compressor → reverb → delay → analyser → masterGain
+        // Signal chain: source (copy) → sendGain → filters → rasp → compressor → reverb → delay → analyser → destination
+        // Original Howler dry routing stays untouched.
         // Tone.js nodes need .input property for connection from Web Audio nodes
-        source.connect(emotionFilter.input);
+        source.connect(sendGain);
+        sendGain.connect(emotionFilter.input);
         emotionFilter.output.connect(eqLowFilter.input);
         eqLowFilter.output.connect(eqMidFilter.input);
         eqMidFilter.output.connect(eqHighFilter.input);
@@ -1138,11 +1261,12 @@ export default function App() {
         compressor.output.connect(reverb.input);
         reverb.output.connect(delay.input);
         delay.output.connect(analyserNode);
-        analyserNode.connect(Howler.masterGain || audioCtx.destination);
+        analyserNode.connect(audioCtx.destination);
 
         console.log("Signal chain connected");
 
         fxNodesRef.current = {
+          sendGain,
           emotionNode: {
             gain: emotionFilter.gain,
             frequency: emotionFilter.frequency,
@@ -1168,7 +1292,7 @@ export default function App() {
           _toneNodes: [emotionFilter, eqLowFilter, eqMidFilter, eqHighFilter, warmthFilter, airFilter, compressor, reverb, delay]
         };
 
-        applyFxSettingsToChain(fxControls, currentSettings);
+        applyFxSettingsToChain(fxControls, currentSettings, activeCoreDials);
         analyserRef.current = analyserNode;
         fftRef.current = new Uint8Array(analyserNode.frequencyBinCount);
         audioEl._saionAnalyserConnected = true;
@@ -1179,10 +1303,8 @@ export default function App() {
         
         // Fallback: create analyser only, no FX chain
         try {
-          const audioCtx = Howler.ctx;
-          const sounds = sound._sounds;
-          if (audioCtx && sounds && sounds.length) {
-            const audioEl = sounds[0]._node;
+          const audioCtx = getAudioContext();
+          if (audioCtx && audioEl) {
             const analyserNode = audioCtx.createAnalyser();
             analyserNode.fftSize = 256;
             analyserNode.smoothingTimeConstant = 0.42;
@@ -1213,67 +1335,61 @@ export default function App() {
       console.log("Loading track:", track);
       setActiveAudioIndex(safeIndex);
       unloadAudio();
+      currentTrackIndexRef.current = safeIndex;
+      currentTrackUrlRef.current = track.url;
 
-      const sound = new Howl({
-        src: [track.url],
-        ...(track.format ? { format: [track.format] } : {}),
-        preload: true,
-        html5: true,
-        volume: volume / 100,
-        onload: () => {
+      const sound = new Audio();
+      sound.preload = "auto";
+      sound.volume = volume / 100;
+      sound.src = track.url;
+
+      const handleLoad = () => {
           console.log("Audio loaded");
           setTransportStatus(`READY ${track.label}`);
-        },
-        onplay: () => {
+        };
+      const handlePlay = () => {
           console.log("Audio started playing");
           setIsPlaying(true);
           setTransportStatus(`PLAYING ${track.label}`);
-        },
-        onpause: () => {
+          if (!sound._saionFxConnected) {
+            sound._saionFxConnected = true;
+            void connectAnalyser(sound);
+          }
+        };
+      const handlePause = () => {
           console.log("Audio paused");
           setIsPlaying(false);
           setTransportStatus("PAUSED");
-        },
-        onstop: () => {
-          console.log("Audio stopped");
-          setIsPlaying(false);
-        },
-        onend: () => {
+        };
+      const handleEnded = () => {
           console.log("Audio ended");
           setIsPlaying(false);
           setTransportStatus("ENDED");
-        },
-        onloaderror: () => {
+        };
+      const handleError = () => {
           console.error("Audio load failed");
           setIsPlaying(false);
           setTransportStatus("AUDIO LOAD FAILED");
-        },
-        onplayerror: () => {
-          console.error("Audio play error");
-          setIsPlaying(false);
-          setTransportStatus("PLAYBACK BLOCKED — RETRYING");
-          sound.once("unlock", () => {
-            console.log("Audio unlocked, retrying play");
-            sound.play();
-          });
-        }
-      });
+        };
 
-      // Connect Tone.js FX chain once the track is loaded (optional - playback works without it)
-      // NOTE: FX chain initialization has a Web Audio connection issue - disabling for now
-      // Playback works perfectly without FX chain via Howler
-      // sound.once("load", () => { 
-      //   console.log("Audio loaded, connecting FX chain");
-      //   void connectAnalyser(sound);
-      // });
+      sound.addEventListener("loadeddata", handleLoad);
+      sound.addEventListener("play", handlePlay);
+      sound.addEventListener("pause", handlePause);
+      sound.addEventListener("ended", handleEnded);
+      sound.addEventListener("error", handleError);
 
       howlRef.current = sound;
 
       if (autoplay) {
         setTransportStatus(`LOADING ${track.label}`);
         console.log("Auto-playing audio");
-        sound.play();
+        void sound.play().catch((error) => {
+          console.error("Audio play error", error);
+          setIsPlaying(false);
+          setTransportStatus("PLAYBACK BLOCKED");
+        });
       } else {
+        sound.load();
         setTransportStatus(`LOADING ${track.label}`);
       }
     };
@@ -1284,16 +1400,23 @@ export default function App() {
         return;
       }
 
-      if (Howler.ctx?.state === "suspended") {
-        void Howler.ctx.resume();
-      }
-      if (Howler._muted) {
-        Howler.mute(false);
+      const preferredIndex = (() => {
+        if (activeVersion === "B" && afterAudio.trim()) {
+          return beforeAudio.trim() ? 1 : 0;
+        }
+        return 0;
+      })();
+
+      const preferredTrack = audioTracks[preferredIndex] || audioTracks[0];
+
+      const audioCtx = getAudioContext();
+      if (audioCtx?.state === "suspended") {
+        void audioCtx.resume();
       }
 
-      if (!howlRef.current) {
-        console.log("Loading audio track:", activeAudioIndex, audioTracks[activeAudioIndex]);
-        loadAudioTrack(activeAudioIndex, true);
+      if (!howlRef.current || currentTrackIndexRef.current !== preferredIndex || currentTrackUrlRef.current !== preferredTrack?.url) {
+        console.log("Loading preferred audio track:", preferredIndex, preferredTrack);
+        loadAudioTrack(preferredIndex, true);
         return;
       }
 
@@ -1302,7 +1425,11 @@ export default function App() {
         howlRef.current.pause();
       } else {
         console.log("Playing audio");
-        howlRef.current.play();
+        void howlRef.current.play().catch((error) => {
+          console.error("Audio play error", error);
+          setIsPlaying(false);
+          setTransportStatus("PLAYBACK BLOCKED");
+        });
       }
       return;
     }
@@ -1355,7 +1482,7 @@ export default function App() {
     vocalPreset
   };
 
-  const generatedPrompt = useMemo(() => buildPrompt(currentSettings, context, fxControls), [currentSettings, tempo, timeSignature, emotionPreset, vocalPreset, fxControls]);
+  const generatedPrompt = useMemo(() => buildPrompt(currentSettings, context, fxControls, originalPrompt), [currentSettings, tempo, timeSignature, emotionPreset, vocalPreset, fxControls, originalPrompt]);
   const generatedNotation = useMemo(() => buildNotation(currentSettings, context, fxControls), [currentSettings, tempo, timeSignature, emotionPreset, vocalPreset, fxControls]);
   const originalNotation = useMemo(() => buildNotation(originalSettings, context, fxControls), [originalSettings, tempo, timeSignature, emotionPreset, vocalPreset, fxControls]);
   const notationWithLocalSettings = useMemo(() => {
@@ -1765,14 +1892,18 @@ export default function App() {
                     <span className="upload-file-name">{beforeAudioFileName || "No local file selected"}</span>
                   </div>
 
-                  {beforeAudio && (
-                    <audio
-                      key={beforeAudio}
-                      controls
-                      src={beforeAudio}
-                      className="inline-audio-player"
-                    />
-                  )}
+                  <div className="inline-audio-wrap">
+                    {beforeAudio ? (
+                      <audio
+                        key={beforeAudio}
+                        controls
+                        src={beforeAudio}
+                        className="inline-audio-player"
+                      />
+                    ) : (
+                      <div className="inline-audio-placeholder">No audio loaded</div>
+                    )}
+                  </div>
 
                   <label>
                     Original Prompt
@@ -1815,14 +1946,18 @@ export default function App() {
                     <span className="upload-file-name">{afterAudioFileName || "No local file selected"}</span>
                   </div>
 
-                  {afterAudio && (
-                    <audio
-                      key={afterAudio}
-                      controls
-                      src={afterAudio}
-                      className="inline-audio-player"
-                    />
-                  )}
+                  <div className="inline-audio-wrap">
+                    {afterAudio ? (
+                      <audio
+                        key={afterAudio}
+                        controls
+                        src={afterAudio}
+                        className="inline-audio-player"
+                      />
+                    ) : (
+                      <div className="inline-audio-placeholder">No audio loaded</div>
+                    )}
+                  </div>
 
                   <label>
                     Generated Prompt
@@ -1881,28 +2016,72 @@ export default function App() {
                 </div>
               </div>
               <div className="orb-module-stage">
-                <Suspense fallback={<div>Loading Orb...</div>}>
-                  <HolographicGlobe
-                    drive={emotionDial / 100}
-                    bass={bassDrive}
-                    treble={trebleDrive}
-                    distortion={distortionDrive}
-                    audioDrive={isPlaying ? globeAudio.drive : undefined}
-                    audioBass={isPlaying ? globeAudio.bass : undefined}
-                    audioTreble={isPlaying ? globeAudio.treble : undefined}
-                    audioDistortion={isPlaying ? globeAudio.distortion : undefined}
-                    audioIntensity={isPlaying ? globeAudio.intensity : undefined}
-                    audioMix={0.68}
-                    chaosSensitivity={chaosSensitivity / 100}
-                    reformSpeed={0.5 + (reformSpeed / 100) * 4.5}
-                    flareIntensity={flareIntensity / 100}
-                    colorSpeed={(colorSpeed / 100) * 2.0}
-                    insideView={insideView}
-                    textureUrl={textureUrl}
-                    normalMapUrl={normalMapUrl}
-                    onTextureUpdate={setTextureUpdateStatus}
-                  />
-                </Suspense>
+                <div className="orb-stage-layout">
+                  <div className="orb-stage-rail orb-stage-rail-left" role="list" aria-label="Left globe texture presets">
+                    {stageLeftTexturePresets.map((preset) => {
+                      const isActive = textureUrl === preset.textureUrl && (normalMapUrl || null) === (preset.normalMapUrl || null);
+                      return (
+                        <button
+                          key={`stage-left-${preset.id}`}
+                          type="button"
+                          role="listitem"
+                          className={`orb-stage-thumb-btn ${isActive ? "is-active" : ""}`}
+                          onClick={() => handleTexturePresetSelect(preset)}
+                          title={preset.label}
+                          aria-label={`Apply ${preset.label} texture`}
+                          aria-pressed={isActive}
+                        >
+                          <img src={preset.thumbnailUrl} alt={preset.label} className="orb-stage-thumb" loading="lazy" />
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <div className="orb-stage-globe">
+                    <Suspense fallback={<div>Loading Orb...</div>}>
+                      <HolographicGlobe
+                        drive={emotionDial / 100}
+                        bass={bassDrive}
+                        treble={trebleDrive}
+                        distortion={distortionDrive}
+                        audioDrive={isPlaying ? globeAudio.drive : undefined}
+                        audioBass={isPlaying ? globeAudio.bass : undefined}
+                        audioTreble={isPlaying ? globeAudio.treble : undefined}
+                        audioDistortion={isPlaying ? globeAudio.distortion : undefined}
+                        audioIntensity={isPlaying ? globeAudio.intensity : undefined}
+                        audioMix={0.68}
+                        chaosSensitivity={chaosSensitivity / 100}
+                        reformSpeed={0.5 + (reformSpeed / 100) * 4.5}
+                        flareIntensity={flareIntensity / 100}
+                        colorSpeed={(colorSpeed / 100) * 2.0}
+                        insideView={insideView}
+                        textureUrl={textureUrl}
+                        normalMapUrl={normalMapUrl}
+                        onTextureUpdate={setTextureUpdateStatus}
+                      />
+                    </Suspense>
+                  </div>
+
+                  <div className="orb-stage-rail orb-stage-rail-right" role="list" aria-label="Right globe texture presets">
+                    {stageRightTexturePresets.map((preset) => {
+                      const isActive = textureUrl === preset.textureUrl && (normalMapUrl || null) === (preset.normalMapUrl || null);
+                      return (
+                        <button
+                          key={`stage-right-${preset.id}`}
+                          type="button"
+                          role="listitem"
+                          className={`orb-stage-thumb-btn ${isActive ? "is-active" : ""}`}
+                          onClick={() => handleTexturePresetSelect(preset)}
+                          title={preset.label}
+                          aria-label={`Apply ${preset.label} texture`}
+                          aria-pressed={isActive}
+                        >
+                          <img src={preset.thumbnailUrl} alt={preset.label} className="orb-stage-thumb" loading="lazy" />
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
               </div>
               <div className="orb-module-controls">
                 <button

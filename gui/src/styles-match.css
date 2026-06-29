@@ -393,9 +393,62 @@ body::after {
   min-height: 520px;
   border: 1px solid var(--line-soft);
   background: radial-gradient(circle at 50% 45%, rgba(38, 177, 255, 0.2), rgba(5, 20, 33, 0.6) 48%, rgba(3, 14, 24, 0.82) 100%);
+  display: block;
+  overflow: visible;
+}
+
+.orb-stage-layout {
+  width: 100%;
+  min-height: 520px;
+  display: grid;
+  grid-template-columns: 100px minmax(280px, 1fr) 100px;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+}
+
+.orb-stage-globe {
+  width: 100%;
+  min-height: 480px;
   display: grid;
   place-items: center;
-  overflow: visible;
+}
+
+.orb-stage-rail {
+  display: grid;
+  gap: 8px;
+  justify-items: center;
+}
+
+.orb-stage-thumb-btn {
+  width: 80px;
+  height: 80px;
+  padding: 3px;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 186, 224, 0.42);
+  background: rgba(7, 15, 28, 0.74);
+  box-shadow: 0 5px 10px rgba(0, 0, 0, 0.28);
+  cursor: pointer;
+  transition: border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
+}
+
+.orb-stage-thumb-btn:hover {
+  border-color: rgba(112, 214, 255, 0.88);
+  box-shadow: 0 0 0 1px rgba(112, 214, 255, 0.34), 0 6px 14px rgba(0, 0, 0, 0.33);
+  transform: translateY(-1px);
+}
+
+.orb-stage-thumb-btn.is-active {
+  border-color: rgba(126, 238, 255, 0.95);
+  box-shadow: 0 0 0 1px rgba(126, 238, 255, 0.34), 0 0 16px rgba(67, 172, 255, 0.3);
+}
+
+.orb-stage-thumb {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 7px;
+  display: block;
 }
 
 .orb-module-controls {
@@ -1154,12 +1207,14 @@ input[type="range"].glass-range::-moz-range-thumb {
   grid-template-columns: 1.35fr auto auto auto;
   gap: 0.9rem;
   align-items: center;
+  position: relative;
 }
 
 .ab-comparison {
   display: flex;
   align-items: center;
   gap: 0.7rem;
+  min-width: 0;
 }
 
 .ab-label,
@@ -1202,9 +1257,7 @@ input[type="range"].glass-range::-moz-range-thumb {
   gap: 0.5rem;
   justify-self: center;
   position: relative;
-  left: -10px;
-  transform: translateX(-10px);
-  margin-left: -10px;
+  z-index: 2;
 }
 
 .control-btn {
@@ -1214,6 +1267,8 @@ input[type="range"].glass-range::-moz-range-thumb {
   background: rgba(4, 19, 31, 0.74);
   color: var(--text);
   cursor: pointer;
+  position: relative;
+  z-index: 2;
 }
 
 .control-btn.play {
@@ -1479,6 +1534,11 @@ input[type="range"].glass-range::-moz-range-thumb {
   font-size: 0.72rem;
   letter-spacing: 0.02em;
   line-height: 1.2;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .upload-drop-hint {
@@ -1748,6 +1808,88 @@ input[type="range"].glass-range::-moz-range-thumb {
   width: 64px;
 }
 
+.texture-preset-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.texture-preset-btn {
+  border: 1px solid rgba(164, 194, 232, 0.35);
+  background: rgba(10, 18, 32, 0.55);
+  border-radius: 10px;
+  padding: 6px;
+  color: var(--text-soft);
+  display: grid;
+  gap: 6px;
+  cursor: pointer;
+  transition: border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
+}
+
+.texture-preset-btn:hover {
+  border-color: rgba(117, 211, 255, 0.72);
+  box-shadow: 0 0 0 1px rgba(101, 200, 255, 0.22);
+  transform: translateY(-1px);
+}
+
+.texture-preset-btn.is-active {
+  border-color: rgba(120, 226, 255, 0.92);
+  box-shadow: 0 0 0 1px rgba(120, 226, 255, 0.34), 0 0 14px rgba(67, 172, 255, 0.24);
+}
+
+.texture-preset-thumb {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+  border-radius: 8px;
+  display: block;
+}
+
+.texture-preset-label {
+  font-family: "Space Grotesk", "Segoe UI", sans-serif;
+  font-size: 0.66rem;
+  letter-spacing: 0.04em;
+  color: var(--text-soft);
+  text-transform: uppercase;
+  text-align: center;
+}
+
+.orb-texture-picker {
+  margin-top: 12px;
+  border-top: 1px solid rgba(152, 188, 225, 0.2);
+  padding-top: 10px;
+}
+
+.orb-texture-picker-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.orb-texture-picker-head span {
+  font-family: "Syncopate", sans-serif;
+  font-size: 0.68rem;
+  letter-spacing: 0.06em;
+  color: rgba(196, 233, 255, 0.94);
+  text-transform: uppercase;
+}
+
+.orb-texture-picker-head small {
+  font-family: "Space Grotesk", "Segoe UI", sans-serif;
+  font-size: 0.64rem;
+  letter-spacing: 0.02em;
+  color: rgba(168, 198, 230, 0.82);
+}
+
+@media (max-width: 640px) {
+  .texture-preset-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 label {
   display: flex;
   flex-direction: column;
@@ -1845,10 +1987,6 @@ textarea {
   .ab-container {
     grid-template-columns: 1fr;
     justify-items: start;
-  }
-
-  .playback-controls {
-    transform: translateX(-10px);
   }
 
   .compare-grid {
@@ -2137,12 +2275,24 @@ select,
     flex: 1 1 170px;
   }
 
-  .playback-controls {
-    transform: translateX(-10px);
-  }
-
   .compare-grid {
     grid-template-columns: 1fr;
+  }
+
+  .orb-stage-layout {
+    min-height: 430px;
+    grid-template-columns: 84px minmax(220px, 1fr) 84px;
+    padding: 8px;
+    gap: 10px;
+  }
+
+  .orb-stage-globe {
+    min-height: 390px;
+  }
+
+  .orb-stage-thumb-btn {
+    width: 68px;
+    height: 68px;
   }
 }
 
@@ -2209,6 +2359,32 @@ select,
 
   .orb-module-stage {
     min-height: 300px;
+  }
+
+  .orb-stage-layout {
+    min-height: 300px;
+    grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(220px, auto) auto;
+    gap: 8px;
+    padding: 8px;
+  }
+
+  .orb-stage-globe {
+    min-height: 220px;
+  }
+
+  .orb-stage-rail {
+    display: flex;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    width: 100%;
+    padding: 4px;
+  }
+
+  .orb-stage-thumb-btn {
+    width: 58px;
+    height: 58px;
   }
 
   .orb-module-readout {
@@ -2290,6 +2466,8 @@ select,
   flex-direction: column;
   align-items: center;
   gap: 3px;
+  max-width: 100%;
+  overflow: hidden;
 }
 
 .waveform-dropzone:hover {
@@ -2319,10 +2497,33 @@ select,
 }
 
 /* Inline audio player inside Generate cards */
+.inline-audio-wrap {
+  width: 100%;
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  margin-top: 6px;
+}
+
+.inline-audio-placeholder {
+  width: 100%;
+  height: 32px;
+  border-radius: 6px;
+  border: 1px dashed rgba(171, 207, 226, 0.35);
+  background: rgba(12, 24, 38, 0.45);
+  color: rgba(171, 207, 226, 0.85);
+  font-family: "Space Grotesk", "Segoe UI", sans-serif;
+  font-size: 0.68rem;
+  letter-spacing: 0.02em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
 .inline-audio-player {
   width: 100%;
   height: 32px;
-  margin-top: 6px;
+  margin-top: 0;
   border-radius: 4px;
   filter: invert(1) hue-rotate(180deg) brightness(0.85);
 }
