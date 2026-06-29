@@ -628,7 +628,6 @@ export default function App() {
   const [colorSpeed, setColorSpeed] = useState(14);
   const [textureUrl, setTextureUrl] = useState(null);
   const [normalMapUrl, setNormalMapUrl] = useState(null);
-  const [textureUpdateStatus, setTextureUpdateStatus] = useState(null);
   const currentSettings = settings;
   const activeEqBandMeta = EQ_BAND_OPTIONS.find((band) => band.key === activeEqBand) || EQ_BAND_OPTIONS[0];
   const activeEqValue = fxControls[activeEqBandMeta.key] ?? 0;
@@ -706,7 +705,6 @@ export default function App() {
   const handleTexturePresetSelect = (preset) => {
     setTextureUrl(preset.textureUrl || null);
     setNormalMapUrl(preset.normalMapUrl || null);
-    setTextureUpdateStatus(null);
   };
 
   const getAudioContext = () => {
@@ -2117,7 +2115,6 @@ export default function App() {
                         insideView={insideView}
                         textureUrl={textureUrl}
                         normalMapUrl={normalMapUrl}
-                        onTextureUpdate={setTextureUpdateStatus}
                       />
                     </Suspense>
                   </div>
@@ -2318,38 +2315,6 @@ export default function App() {
                     );
                   })}
                 </div>
-              </div>
-
-              <div className="settings-section">
-                <h3>Globe Textures (Digital Ocean)</h3>
-                <label>
-                  Texture URL
-                  <input
-                    type="text"
-                    placeholder="https://your-cdn.digitaloceanspaces.com/texture.jpg"
-                    value={textureUrl || ""}
-                    onChange={(e) => setTextureUrl(e.target.value || null)}
-                    className="glass-input"
-                  />
-                </label>
-                <label>
-                  Normal Map URL
-                  <input
-                    type="text"
-                    placeholder="https://your-cdn.digitaloceanspaces.com/normal.jpg"
-                    value={normalMapUrl || ""}
-                    onChange={(e) => setNormalMapUrl(e.target.value || null)}
-                    className="glass-input"
-                  />
-                </label>
-                {textureUpdateStatus && (
-                  <div className={`texture-status ${textureUpdateStatus.success ? 'success' : 'error'}`}>
-                    {textureUpdateStatus.success ? '✓ Texture loaded' : `✗ Error: ${textureUpdateStatus.error}`}
-                  </div>
-                )}
-                <p className="settings-hint">
-                  🔄 Polls every 30 seconds for updates automatically
-                </p>
               </div>
 
             </div>

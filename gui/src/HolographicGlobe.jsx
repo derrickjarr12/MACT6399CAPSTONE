@@ -26,8 +26,7 @@ function HolographicGlobe({
   colorSpeed = 0.28,
   insideView = false,
   textureUrl = null,
-  normalMapUrl = null,
-  onTextureUpdate = null
+  normalMapUrl = null
 }) {
   const mountRef = useRef(null);
   const driveRef = useRef(clamp01(drive));
@@ -137,39 +136,17 @@ function HolographicGlobe({
           }
           
           currentTextureUrlRef.current = url;
-          if (onTextureUpdate) {
-            onTextureUpdate({ success: true, url });
-          }
-          console.log('✅ Loaded texture from Digital Ocean:', url);
+          console.log('✅ Loaded texture:', url);
         },
         undefined,
         (error) => {
           console.warn('⚠️ Failed to load texture:', error);
-          if (onTextureUpdate) {
-            onTextureUpdate({ success: false, error: error.message });
-          }
         }
       );
     };
 
-    // Load texture on mount
     loadTexture(textureUrl);
-
-    // Poll for texture changes every 30 seconds
-    const pollInterval = setInterval(() => {
-      // Check if URL changed or add cache-bust parameter
-      const cacheBustUrl = textureUrl.includes('?') 
-        ? `${textureUrl}&t=${Date.now()}`
-        : `${textureUrl}?t=${Date.now()}`;
-      
-      // Only reload if the original URL is different
-      if (textureUrl !== currentTextureUrlRef.current) {
-        loadTexture(cacheBustUrl);
-      }
-    }, 30000);
-
-    return () => clearInterval(pollInterval);
-  }, [textureUrl, onTextureUpdate]);
+  }, [textureUrl]);
 
   // Normal map loading effect
   useEffect(() => {
@@ -182,7 +159,7 @@ function HolographicGlobe({
           globeMeshRef.current.material.normalMap = texture;
           globeMeshRef.current.material.needsUpdate = true;
         }
-        console.log('✅ Loaded normal map from Digital Ocean:', normalMapUrl);
+        console.log('✅ Loaded normal map:', normalMapUrl);
       },
       undefined,
       (error) => {
