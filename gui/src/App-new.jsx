@@ -605,7 +605,7 @@ export default function App() {
     rhythm: 63,
     dynamics: 71
   });
-  const howlRef = useRef(null);
+  const audioElementRef = useRef(null);
   const audioContextRef = useRef(null);
   const currentTrackIndexRef = useRef(-1);
   const currentTrackUrlRef = useRef("");
@@ -717,6 +717,65 @@ export default function App() {
     return audioContextRef.current;
   };
 
+  const disposeFxChain = () => {
+    if (fxNodesRef.current?._toneNodes) {
+      fxNodesRef.current._toneNodes.forEach((node) => {
+        try {
+          node.dispose();
+        } catch (_) {}
+      });
+    }
+
+    analyserRef.current = null;
+    fxNodesRef.current = null;
+  };
+
+  const detachAudioElement = (audioEl = audioElementRef.current) => {
+    if (!audioEl) return;
+
+    const eventHandlers = audioEl._saionEventHandlers;
+    if (eventHandlers) {
+      Object.entries(eventHandlers).forEach(([eventName, handler]) => {
+        audioEl.removeEventListener(eventName, handler);
+      });
+      delete audioEl._saionEventHandlers;
+    }
+
+    audioEl.pause();
+    audioEl.removeAttribute("src");
+    audioEl.load();
+    audioEl._saionFxConnected = false;
+    audioEl._saionAnalyserConnected = false;
+
+    if (audioElementRef.current === audioEl) {
+      audioElementRef.current = null;
+    }
+  };
+
+  const isCurrentAudioElement = (audioEl) => audioElementRef.current === audioEl;
+
+  const resumeAudioContext = async () => {
+    const audioCtx = getAudioContext();
+    if (audioCtx?.state === "suspended") {
+      await audioCtx.resume();
+    }
+    return audioCtx;
+  };
+
+  const playAudioElement = async (audioEl) => {
+    if (!audioEl) return;
+
+    try {
+      await resumeAudioContext();
+      await audioEl.play();
+    } catch (error) {
+      console.error("Audio play error", error);
+      if (!isCurrentAudioElement(audioEl)) return;
+      setIsPlaying(false);
+      setTransportStatus("PLAYBACK BLOCKED");
+    }
+  };
+
   const stageLeftTexturePresets = TEXTURE_PRESETS.slice(0, 4);
   const stageRightTexturePresets = TEXTURE_PRESETS.slice(4, 8);
 
@@ -729,16 +788,29 @@ export default function App() {
     const now = audioCtx?.currentTime ?? 0;
     const setParam = (audioParam, targetValue, glide = 0.02) => {
       if (!audioParam) return;
-      // Tone Param / Signal — use rampTo for smooth transition
-      if (typeof audioParam.rampTo === "function") {
-        audioParam.rampTo(targetValue, glide);
-        return;
-      }
-      if (audioCtx && typeof audioParam.setTargetAtTime === "function") {
+      if (!Number.isFinite(targetValue)) return;
+
+      const safeGlide = Number.isFinite(glide) ? Math.max(0, glide) : 0;
+      const currentValue = Number.isFinite(audioParam.value) ? audioParam.value : targetValue;
+
+      if (typeof audioParam.cancelScheduledValues === "function") {
         audioParam.cancelScheduledValues(now);
-        audioParam.setTargetAtTime(targetValue, now, glide);
+      }
+
+      if (typeof audioParam.setValueAtTime === "function") {
+        audioParam.setValueAtTime(currentValue, now);
+      }
+
+      if (typeof audioParam.linearRampToValueAtTime === "function" && safeGlide > 0) {
+        audioParam.linearRampToValueAtTime(targetValue, now + safeGlide);
         return;
       }
+
+      if (audioCtx && typeof audioParam.setTargetAtTime === "function" && safeGlide > 0) {
+        audioParam.setTargetAtTime(targetValue, now, safeGlide);
+        return;
+      }
+
       audioParam.value = targetValue;
     };
 
@@ -902,12 +974,8 @@ export default function App() {
 
   useEffect(() => {
     return () => {
-      if (howlRef.current) {
-        howlRef.current.pause();
-        howlRef.current.removeAttribute("src");
-        howlRef.current.load();
-        howlRef.current = null;
-      }
+      detachAudioElement();
+      disposeFxChain();
 
       if (localAudioUrlsRef.current.before) {
         URL.revokeObjectURL(localAudioUrlsRef.current.before);
@@ -941,8 +1009,8 @@ export default function App() {
   }, [activeAudioIndex, audioTracks.length]);
 
   useEffect(() => {
-    if (!howlRef.current) return;
-    howlRef.current.volume = volume / 100;
+    if (!audioElementRef.current) return;
+    audioElementRef.current.volume = volume / 100;
   }, [volume]);
 
   useEffect(() => {
@@ -1154,18 +1222,17 @@ export default function App() {
 
   const triggerTransport = (action) => {
     const unloadAudio = () => {
-      if (!howlRef.current) return;
-      howlRef.current.pause();
-      howlRef.current.removeAttribute("src");
-      howlRef.current.load();
-      howlRef.current = null;
+      detachAudioElement();
       currentTrackIndexRef.current = -1;
       currentTrackUrlRef.current = "";
-      if (fxNodesRef.current?._toneNodes) {
-        fxNodesRef.current._toneNodes.forEach((node) => { try { node.dispose(); } catch (_) {} });
+      disposeFxChain();
+    };
+
+    const getPreferredTrackIndex = () => {
+      if (activeVersion === "B" && afterAudio.trim()) {
+        return beforeAudio.trim() ? 1 : 0;
       }
-      analyserRef.current = null;
-      fxNodesRef.current = null;
+      return 0;
     };
 
     const connectAnalyser = async (audioEl) => {
@@ -1192,7 +1259,7 @@ export default function App() {
         }
 
         // Try to create MediaElementSource for an auxiliary FX send.
-        // This preserves Howler's original dry path and layers Tone.js quality FX on top.
+        // This preserves the audio element's dry path and layers Tone.js quality FX on top.
         let source;
         try {
           source = audioCtx.createMediaElementSource(audioEl);
@@ -1203,7 +1270,7 @@ export default function App() {
           const analyserNode = audioCtx.createAnalyser();
           analyserNode.fftSize = 256;
           analyserNode.smoothingTimeConstant = 0.42;
-          // Don't connect to destination since Howler handles its own routing
+          // Don't connect to destination since the audio element handles its own routing
           
           analyserRef.current = analyserNode;
           fftRef.current = new Uint8Array(analyserNode.frequencyBinCount);
@@ -1245,23 +1312,23 @@ export default function App() {
         console.log("FX nodes created, building signal chain");
 
         // Signal chain: source (copy) → sendGain → filters → rasp → compressor → reverb → delay → analyser → destination
-        // Original Howler dry routing stays untouched.
+        // The original audio element dry routing stays untouched.
         // Tone.js nodes need .input property for connection from Web Audio nodes
-        source.connect(sendGain);
-        sendGain.connect(emotionFilter.input);
-        emotionFilter.output.connect(eqLowFilter.input);
-        eqLowFilter.output.connect(eqMidFilter.input);
-        eqMidFilter.output.connect(eqHighFilter.input);
-        eqHighFilter.output.connect(warmthFilter.input);
-        warmthFilter.output.connect(airFilter.input);
+        Tone.connect(source, sendGain);
+        Tone.connect(sendGain, emotionFilter);
+        Tone.connect(emotionFilter, eqLowFilter);
+        Tone.connect(eqLowFilter, eqMidFilter);
+        Tone.connect(eqMidFilter, eqHighFilter);
+        Tone.connect(eqHighFilter, warmthFilter);
+        Tone.connect(warmthFilter, airFilter);
         // Tone → raw WaveShaper → Tone compressor
-        airFilter.output.connect(raspNode);
-        raspNode.connect(compressor.input);
+        Tone.connect(airFilter, raspNode);
+        Tone.connect(raspNode, compressor);
         // Tone: compressor → reverb → delay → raw analyser → destination
-        compressor.output.connect(reverb.input);
-        reverb.output.connect(delay.input);
-        delay.output.connect(analyserNode);
-        analyserNode.connect(audioCtx.destination);
+        Tone.connect(compressor, reverb);
+        Tone.connect(reverb, delay);
+        Tone.connect(delay, analyserNode);
+        Tone.connect(analyserNode, audioCtx.destination);
 
         console.log("Signal chain connected");
 
@@ -1344,10 +1411,12 @@ export default function App() {
       sound.src = track.url;
 
       const handleLoad = () => {
+          if (!isCurrentAudioElement(sound)) return;
           console.log("Audio loaded");
           setTransportStatus(`READY ${track.label}`);
         };
       const handlePlay = () => {
+          if (!isCurrentAudioElement(sound)) return;
           console.log("Audio started playing");
           setIsPlaying(true);
           setTransportStatus(`PLAYING ${track.label}`);
@@ -1357,37 +1426,42 @@ export default function App() {
           }
         };
       const handlePause = () => {
+          if (!isCurrentAudioElement(sound)) return;
           console.log("Audio paused");
           setIsPlaying(false);
           setTransportStatus("PAUSED");
         };
       const handleEnded = () => {
+          if (!isCurrentAudioElement(sound)) return;
           console.log("Audio ended");
           setIsPlaying(false);
           setTransportStatus("ENDED");
         };
       const handleError = () => {
+          if (!isCurrentAudioElement(sound)) return;
           console.error("Audio load failed");
           setIsPlaying(false);
           setTransportStatus("AUDIO LOAD FAILED");
         };
 
-      sound.addEventListener("loadeddata", handleLoad);
-      sound.addEventListener("play", handlePlay);
-      sound.addEventListener("pause", handlePause);
-      sound.addEventListener("ended", handleEnded);
-      sound.addEventListener("error", handleError);
+      sound._saionEventHandlers = {
+        loadeddata: handleLoad,
+        play: handlePlay,
+        pause: handlePause,
+        ended: handleEnded,
+        error: handleError
+      };
 
-      howlRef.current = sound;
+      Object.entries(sound._saionEventHandlers).forEach(([eventName, handler]) => {
+        sound.addEventListener(eventName, handler);
+      });
+
+      audioElementRef.current = sound;
 
       if (autoplay) {
         setTransportStatus(`LOADING ${track.label}`);
         console.log("Auto-playing audio");
-        void sound.play().catch((error) => {
-          console.error("Audio play error", error);
-          setIsPlaying(false);
-          setTransportStatus("PLAYBACK BLOCKED");
-        });
+        void playAudioElement(sound);
       } else {
         sound.load();
         setTransportStatus(`LOADING ${track.label}`);
@@ -1400,21 +1474,11 @@ export default function App() {
         return;
       }
 
-      const preferredIndex = (() => {
-        if (activeVersion === "B" && afterAudio.trim()) {
-          return beforeAudio.trim() ? 1 : 0;
-        }
-        return 0;
-      })();
+      const preferredIndex = getPreferredTrackIndex();
 
       const preferredTrack = audioTracks[preferredIndex] || audioTracks[0];
 
-      const audioCtx = getAudioContext();
-      if (audioCtx?.state === "suspended") {
-        void audioCtx.resume();
-      }
-
-      if (!howlRef.current || currentTrackIndexRef.current !== preferredIndex || currentTrackUrlRef.current !== preferredTrack?.url) {
+      if (!audioElementRef.current || currentTrackIndexRef.current !== preferredIndex || currentTrackUrlRef.current !== preferredTrack?.url) {
         console.log("Loading preferred audio track:", preferredIndex, preferredTrack);
         loadAudioTrack(preferredIndex, true);
         return;
@@ -1422,14 +1486,10 @@ export default function App() {
 
       if (isPlaying) {
         console.log("Pausing audio");
-        howlRef.current.pause();
+        audioElementRef.current.pause();
       } else {
         console.log("Playing audio");
-        void howlRef.current.play().catch((error) => {
-          console.error("Audio play error", error);
-          setIsPlaying(false);
-          setTransportStatus("PLAYBACK BLOCKED");
-        });
+        void playAudioElement(audioElementRef.current);
       }
       return;
     }
