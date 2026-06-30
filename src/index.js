@@ -586,6 +586,35 @@ app.get('/', (req, res) => {
   res.send('Hello from your Express server!');
 });
 
+app.get('/api/apiframe/health', (req, res) => {
+  const { generator = 'Suno' } = req.query || {};
+  const cfg = resolveApiFrameConfig(generator);
+
+  const keyPresent = Boolean(cfg.apiKey && String(cfg.apiKey).trim());
+  const baseUrlPresent = Boolean(cfg.baseUrl && String(cfg.baseUrl).trim());
+  const generatePathPresent = Boolean(cfg.generatePath && String(cfg.generatePath).trim());
+  const statusPathPresent = Boolean(cfg.statusPathTemplate && String(cfg.statusPathTemplate).trim());
+
+  const ready = keyPresent && baseUrlPresent && generatePathPresent && statusPathPresent;
+
+  res.status(ready ? 200 : 503).json({
+    ok: ready,
+    generator: cfg.normalized,
+    checks: {
+      apiKey: keyPresent,
+      baseUrl: baseUrlPresent,
+      generatePath: generatePathPresent,
+      statusPath: statusPathPresent
+    },
+    // Never return key material; only non-sensitive config shape.
+    config: {
+      baseUrl: cfg.baseUrl || '',
+      generatePath: cfg.generatePath || '',
+      statusPathTemplate: cfg.statusPathTemplate || ''
+    }
+  });
+});
+
 validateStartup();
 ensureMySqlInit();
 

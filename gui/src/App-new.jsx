@@ -291,6 +291,25 @@ function dataUrlToObjectUrl(dataUrl) {
   }
 }
 
+function isAudioDebugEnabled() {
+  if (!import.meta.env.DEV) return false;
+  if (typeof window === "undefined") return false;
+
+  try {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("audioDebug") === "1") return true;
+    return window.localStorage.getItem("saion-audio-debug") === "1";
+  } catch (_) {
+    return false;
+  }
+}
+
+function audioDebug(...args) {
+  if (isAudioDebugEnabled()) {
+    console.log("[AUDIO_DEBUG]", ...args);
+  }
+}
+
 function MiniDial({ value, label, variant = "emotion", onChange, step = 1 }) {
   const isVocal = variant === "vocal";
   const currentValue = value || 0;
@@ -1183,6 +1202,13 @@ export default function App() {
     const localUrl = URL.createObjectURL(file);
     const format = detectAudioFormat(file);
     localAudioUrlsRef.current[key] = localUrl;
+    audioDebug("upload-selected", {
+      target: key,
+      name: file.name,
+      type: file.type || "unknown",
+      sizeBytes: file.size,
+      detectedFormat: format || "unknown"
+    });
 
     if (key === "before") {
       setBeforeAudio(localUrl);
@@ -1203,6 +1229,12 @@ export default function App() {
     }
 
     setTransportStatus("LOCAL AUDIO READY");
+    audioDebug("upload-ready", {
+      target: key,
+      objectUrlPrefix: localUrl.slice(0, 24),
+      beforeAudioSet: key === "before",
+      afterAudioSet: key === "after"
+    });
   };
 
   const handleLocalAudioSelected = (target, event) => {
@@ -1256,115 +1288,39 @@ export default function App() {
           audioCtx.resume();
         }
 
-        // Try to create MediaElementSource for an auxiliary FX send.
-        // This preserves the audio element's dry path and layers Tone.js quality FX on top.
+        // Create a transparent audio path for local playback:
+        // source -> destination for audible output, plus source -> analyser for visuals.
         let source;
         try {
           source = audioCtx.createMediaElementSource(audioEl);
-          console.log("MediaElementSource created");
+          console.log("MediaElementSource created (transparent path)");
         } catch (sourceErr) {
           console.warn("MediaElementSource already exists or unavailable, using fallback", sourceErr.message);
-          // Create a simple analyser without modifying source routing
+          // If a source node cannot be created, skip attaching analyser rather than altering sound.
           const analyserNode = audioCtx.createAnalyser();
           analyserNode.fftSize = 256;
           analyserNode.smoothingTimeConstant = 0.42;
-          // Don't connect to destination since the audio element handles its own routing
-          
+
           analyserRef.current = analyserNode;
           fftRef.current = new Uint8Array(analyserNode.frequencyBinCount);
           audioEl._saionAnalyserConnected = true;
-          console.log("Fallback analyser setup complete (no FX)");
+          console.log("Fallback analyser setup complete");
           return;
         }
-
-        // Tone.js context sync (once per session)
-        if (!toneContextSyncedRef.current) {
-          Tone.setContext(audioCtx);
-          toneContextSyncedRef.current = true;
-          console.log("Tone.js context synced");
-        }
-
-        // Build auxiliary FX chain (wet effects only)
-        const emotionFilter = new Tone.Filter({ type: "peaking", frequency: 900, Q: 0.9, gain: 0 });
-        const eqLowFilter  = new Tone.Filter({ type: "lowshelf", frequency: 180, gain: 0 });
-        const eqMidFilter  = new Tone.Filter({ type: "peaking", frequency: 1200, Q: 0.85, gain: 0 });
-        const eqHighFilter = new Tone.Filter({ type: "highshelf", frequency: 5400, gain: 0 });
-        const warmthFilter = new Tone.Filter({ type: "lowshelf", frequency: 260, gain: 0 });
-        const airFilter    = new Tone.Filter({ type: "highshelf", frequency: 5200, gain: 0 });
-        const sendGain = audioCtx.createGain();
-        sendGain.gain.value = 0.16;
-
-        const raspNode = audioCtx.createWaveShaper();
-        raspNode.oversample = "4x";
-        raspNode.curve = createRaspCurve(0);
-
-        const compressor = new Tone.Compressor({ threshold: -46, ratio: 3, attack: 0.025, release: 0.08, knee: 18 });
-        const reverb = new Tone.Reverb({ decay: 1.8, wet: 1 });
-        await reverb.ready;
-        const delay = new Tone.FeedbackDelay({ delayTime: 0.03, feedback: 0.08, wet: 1 });
 
         const analyserNode = audioCtx.createAnalyser();
         analyserNode.fftSize = 256;
         analyserNode.smoothingTimeConstant = 0.42;
 
-        console.log("FX nodes created, building signal chain");
-
-        // Signal chain: source (copy) → sendGain → filters → rasp → compressor → reverb → delay → analyser → destination
-        // The original audio element dry routing stays untouched.
-        // Tone.js nodes need .input property for connection from Web Audio nodes
-        Tone.connect(source, sendGain);
-        Tone.connect(sendGain, emotionFilter);
-        Tone.connect(emotionFilter, eqLowFilter);
-        Tone.connect(eqLowFilter, eqMidFilter);
-        Tone.connect(eqMidFilter, eqHighFilter);
-        Tone.connect(eqHighFilter, warmthFilter);
-        Tone.connect(warmthFilter, airFilter);
-        // Tone → raw WaveShaper → Tone compressor
-        Tone.connect(airFilter, raspNode);
-        Tone.connect(raspNode, compressor);
-        // Tone: compressor → reverb → delay → raw analyser → destination
-        Tone.connect(compressor, reverb);
-        Tone.connect(reverb, delay);
-        Tone.connect(delay, analyserNode);
-        Tone.connect(analyserNode, audioCtx.destination);
-
-        console.log("Signal chain connected");
-
-        fxNodesRef.current = {
-          sendGain,
-          emotionNode: {
-            gain: emotionFilter.gain,
-            frequency: emotionFilter.frequency,
-            Q: emotionFilter.Q
-          },
-          eqLowNode:  { gain: eqLowFilter.gain },
-          eqMidNode:  { gain: eqMidFilter.gain },
-          eqHighNode: { gain: eqHighFilter.gain },
-          warmthNode: { gain: warmthFilter.gain },
-          airNode:    { gain: airFilter.gain },
-          raspNode,
-          compressor: {
-            threshold: compressor.threshold,
-            ratio:     compressor.ratio,
-            attack:    compressor.attack,
-            release:   compressor.release
-          },
-          reverbWetGain: { gain: reverb.wet },
-          dryGain:       { gain: null },
-          delayNode:         { delayTime: delay.delayTime },
-          delayFeedbackGain: { gain: delay.feedback },
-          delayWetGain:      { gain: delay.wet },
-          _toneNodes: [emotionFilter, eqLowFilter, eqMidFilter, eqHighFilter, warmthFilter, airFilter, compressor, reverb, delay]
-        };
-
-        applyFxSettingsToChain(fxControls, currentSettings, activeCoreDials);
+        source.connect(audioCtx.destination);
+        source.connect(analyserNode);
         analyserRef.current = analyserNode;
         fftRef.current = new Uint8Array(analyserNode.frequencyBinCount);
         audioEl._saionAnalyserConnected = true;
-        
-        console.log("FX chain fully connected");
+
+        console.log("Transparent analyser path connected");
       } catch (err) {
-        console.error("FX chain setup error (audio will still play):", err);
+        console.error("Analyser setup error (audio will still play):", err);
         
         // Fallback: create analyser only, no FX chain
         try {
@@ -1378,7 +1334,7 @@ export default function App() {
             fftRef.current = new Uint8Array(analyserNode.frequencyBinCount);
             audioEl._saionAnalyserConnected = true;
             
-            console.log("Emergency fallback: analyser only (no FX)");
+            console.log("Emergency fallback: analyser only");
           }
         } catch (fallbackErr) {
           console.error("Even fallback failed:", fallbackErr);
@@ -1406,7 +1362,35 @@ export default function App() {
       const sound = new Audio();
       sound.preload = "auto";
       sound.volume = volume / 100;
+      try {
+        if ("preservesPitch" in sound) sound.preservesPitch = true;
+        if ("webkitPreservesPitch" in sound) sound.webkitPreservesPitch = true;
+        if ("mozPreservesPitch" in sound) sound.mozPreservesPitch = true;
+      } catch (pitchErr) {
+        audioDebug("preserves-pitch-assign-failed", pitchErr?.message || pitchErr);
+      }
       sound.src = track.url;
+      audioDebug("track-load", {
+        index: safeIndex,
+        label: track.label,
+        format: track.format || "unknown",
+        volume: sound.volume,
+        playbackRate: sound.playbackRate,
+        preservesPitch: typeof sound.preservesPitch === "boolean" ? sound.preservesPitch : "unsupported",
+        isObjectUrl: track.url.startsWith("blob:"),
+        urlPrefix: track.url.slice(0, 24)
+      });
+
+      const handleMetadata = () => {
+          if (!isCurrentAudioElement(sound)) return;
+          audioDebug("track-metadata", {
+            label: track.label,
+            duration: Number.isFinite(sound.duration) ? Number(sound.duration.toFixed(3)) : null,
+            readyState: sound.readyState,
+            networkState: sound.networkState,
+            currentSrcPrefix: (sound.currentSrc || "").slice(0, 24)
+          });
+        };
 
       const handleLoad = () => {
           if (!isCurrentAudioElement(sound)) return;
@@ -1443,6 +1427,7 @@ export default function App() {
         };
 
       sound._saionEventHandlers = {
+        loadedmetadata: handleMetadata,
         loadeddata: handleLoad,
         play: handlePlay,
         pause: handlePause,
@@ -1660,6 +1645,70 @@ export default function App() {
     if (localPreviewOnly) {
       setSavedState("LOCAL PREVIEW ONLY");
       setTransportStatus("LOCAL PREVIEW MODE");
+      return;
+    }
+
+    const normalizedGenerator = String(generator || "").toLowerCase();
+
+    // Manual Mureka path: download a file the user can upload with their own workflow.
+    if (normalizedGenerator === "mureka") {
+      const hasSourceAudio = Boolean(beforeAudio.trim());
+      const sourceAudioValue = beforeAudio.trim();
+      const sourceAudioIsBlob = sourceAudioValue.startsWith("blob:");
+      const sourceAudioIsDataUrl = isAudioDataUrl(sourceAudioValue);
+      const sourceAudioData = beforeAudioDataUrl || (sourceAudioIsDataUrl ? sourceAudioValue : "");
+      const hasSourceAudioUrl = hasSourceAudio && !sourceAudioIsBlob && !sourceAudioIsDataUrl;
+
+      const sourcePayload = hasSourceAudio
+        ? {
+            ...(hasSourceAudioUrl
+              ? {
+                  sourceAudioUrl: beforeAudio.trim(),
+                  source_audio_url: beforeAudio.trim(),
+                  inputAudioUrl: beforeAudio.trim(),
+                  input_audio_url: beforeAudio.trim()
+                }
+              : {
+                  sourceAudioData: sourceAudioData,
+                  source_audio_data: sourceAudioData,
+                  inputAudioData: sourceAudioData,
+                  input_audio_data: sourceAudioData,
+                  sourceAudioFileName: beforeAudioFileName || undefined,
+                  sourceAudioFormat: beforeAudioFormat || undefined
+                })
+          }
+        : {};
+
+      const makePayload = {
+        generator: "mureka",
+        prompt: generatedPrompt,
+        notation: generatedNotation,
+        effects: { ...fxControls },
+        ...sourcePayload,
+        metadata: {
+          sessionTitle,
+          tempo,
+          timeSignature,
+          emotionPreset,
+          vocalPreset,
+          vocalDetailLevel,
+          harmonyStyle,
+          exportedAt: new Date().toISOString()
+        }
+      };
+
+      downloadTextFile(
+        `${(sessionTitle || "song-idea").replace(/\s+/g, "-").toLowerCase()}-mureka-make-payload.json`,
+        JSON.stringify(makePayload, null, 2),
+        "application/json"
+      );
+
+      try {
+        await navigator.clipboard.writeText(generatedPrompt);
+      } catch (_) {}
+
+      setSavedState("MUREKA FILE READY");
+      setTransportStatus("READY TO UPLOAD");
       return;
     }
 
@@ -2225,8 +2274,9 @@ export default function App() {
                   Generator
                   <select value={generator} onChange={(e) => setGenerator(e.target.value)}>
                     <option>Suno</option>
-                    <option>Mureka</option>
+                    <option>Mureka Upload</option>
                     <option>Udio</option>
+                    <option>ElevenLabs</option>
                   </select>
                 </label>
 
