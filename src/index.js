@@ -45,7 +45,7 @@ app.use((req, res, next) => {
   next();
 });
 
-function resolveApiFrameConfig(generator = 'Suno') {
+function resolveProviderConfig(generator = 'Suno') {
   const normalized = String(generator || 'Suno').toLowerCase();
 
   if (normalized === 'mureka') {
@@ -61,10 +61,11 @@ function resolveApiFrameConfig(generator = 'Suno') {
   if (normalized === 'udio') {
     return {
       normalized,
-      apiKey: process.env.UDIO_API_KEY,
-      baseUrl: (process.env.UDIO_BASE_URL || '').replace(/\/$/, ''),
-      generatePath: process.env.UDIO_GENERATE_PATH || '',
-      statusPathTemplate: process.env.UDIO_STATUS_PATH || ''
+      apiKey: process.env.UDIO_API_KEY || process.env.UDIOPROAPI_API_KEY,
+      baseUrl: (process.env.UDIO_BASE_URL || process.env.UDIOPROAPI_BASE_URL || '').replace(/\/$/, ''),
+      generatePath: process.env.UDIO_GENERATE_PATH || process.env.UDIOPROAPI_UDIO_GENERATE_PATH || process.env.UDIOPROAPI_GENERATE_PATH || '/v2/generate',
+      statusPathTemplate: process.env.UDIO_STATUS_PATH || process.env.UDIOPROAPI_STATUS_PATH || '/v2/jobs/{jobId}',
+      model: process.env.UDIO_MODEL || 'udio'
     };
   }
 
@@ -80,10 +81,11 @@ function resolveApiFrameConfig(generator = 'Suno') {
 
   return {
     normalized,
-    apiKey: process.env.APIFRAME_API_KEY || process.env.SUNO_API_KEY,
-    baseUrl: (process.env.APIFRAME_BASE_URL || 'https://api.apiframe.pro').replace(/\/$/, ''),
-    generatePath: process.env.APIFRAME_SUNO_GENERATE_PATH || '/suno/v1/generate',
-    statusPathTemplate: process.env.APIFRAME_STATUS_PATH || '/v1/jobs/{jobId}'
+    apiKey: process.env.UDIOPROAPI_API_KEY || process.env.SUNO_API_KEY,
+    baseUrl: (process.env.UDIOPROAPI_BASE_URL || process.env.SUNO_BASE_URL || '').replace(/\/$/, ''),
+    generatePath: process.env.UDIOPROAPI_SUNO_GENERATE_PATH || process.env.SUNO_GENERATE_PATH || process.env.UDIOPROAPI_GENERATE_PATH || '/v2/generate',
+    statusPathTemplate: process.env.UDIOPROAPI_STATUS_PATH || process.env.SUNO_STATUS_PATH || '/v2/jobs/{jobId}',
+    model: process.env.SUNO_MODEL || 'suno'
   };
 }
 
@@ -111,6 +113,25 @@ function getMySqlConfig() {
 
   mysqlTable = sanitizeTableName(process.env.MYSQL_TABLE || 'pnf_request_jobs');
 
+  const sslEnabled = String(process.env.MYSQL_SSL || '').toLowerCase() === 'true';
+  const sslRejectUnauthorized = String(process.env.MYSQL_SSL_REJECT_UNAUTHORIZED || 'true').toLowerCase() !== 'false';
+  const sslCaBase64 = process.env.MYSQL_SSL_CA_BASE64 || '';
+
+  let ssl;
+  if (sslEnabled) {
+    ssl = {
+      rejectUnauthorized: sslRejectUnauthorized
+    };
+
+    if (sslCaBase64) {
+      try {
+        ssl.ca = Buffer.from(sslCaBase64, 'base64').toString('utf8');
+      } catch (_) {
+        console.warn('Invalid MYSQL_SSL_CA_BASE64 value; continuing without custom CA.');
+      }
+    }
+  }
+
   return {
     host,
     port: Number(process.env.MYSQL_PORT || 3306),
@@ -119,7 +140,8 @@ function getMySqlConfig() {
     database,
     waitForConnections: true,
     connectionLimit: Number(process.env.MYSQL_CONNECTION_LIMIT || 10),
-    queueLimit: 0
+    queueLimit: 0,
+    ...(ssl ? { ssl } : {})
   };
 }
 
@@ -376,6 +398,85 @@ function buildNormalizedMetadata({ requestId, generator, providerJobId, payload 
   };
 }
 
+function extractErrorMessage(payload) {
+  if (!payload || typeof payload !== 'object') return '';
+
+  const direct = getFirstString(payload, [
+    'error',
+    'message',
+    'error.message',
+    'detail',
+    'details',
+    'data.error',
+    'data.message',
+    'result.error',
+    'result.message'
+  ]);
+
+  return direct || '';
+}
+
+function statusLabel(status) {
+  if (status === 200) return 'ok';
+  if (status === 401) return 'unauthorized';
+  if (status === 404) return 'not_found';
+  if (status === 429) return 'rate_limited';
+  if (status === 500) return 'upstream_error';
+  if (status >= 500) return 'server_error';
+  if (status >= 400) return 'client_error';
+  if (status >= 200) return 'success';
+  return 'unknown';
+}
+
+function buildKnownStatusFallback(status) {
+  if (status === 401) return 'Unauthorized request to provider. Check API credentials.';
+  if (status === 404) return 'Provider endpoint or resource was not found.';
+  if (status === 429) return 'Too many requests. Please retry after a delay.';
+  if (status === 500) return 'Provider returned an internal server error.';
+  return '';
+}
+
+function sendUpstreamResponse({ res, upstreamRes, data, normalized, hasCompareContext = false }) {
+  const status = upstreamRes.status;
+  const retryAfter = upstreamRes.headers.get('retry-after');
+  const pnfMeta = {
+    ...normalized,
+    ...(hasCompareContext ? { hasCompareContext } : {}),
+    http: {
+      status,
+      label: statusLabel(status),
+      ...(retryAfter ? { retryAfter } : {})
+    }
+  };
+
+  if ([401, 404, 429, 500].includes(status)) {
+    const errorMessage = extractErrorMessage(data) || buildKnownStatusFallback(status);
+    res.status(status).json({
+      ...data,
+      ...(errorMessage ? { error: errorMessage } : {}),
+      _pnf: pnfMeta
+    });
+    return;
+  }
+
+  res.status(status).json({
+    ...data,
+    _pnf: pnfMeta
+  });
+}
+
+function sendInternalServerError(res, error, fallbackMessage) {
+  res.status(500).json({
+    error: (error && error.message) || fallbackMessage || 'Internal server error.',
+    _pnf: {
+      http: {
+        status: 500,
+        label: statusLabel(500)
+      }
+    }
+  });
+}
+
 async function upsertRequestRecord({
   requestId,
   generator,
@@ -419,7 +520,7 @@ async function upsertRequestRecord({
   return record;
 }
 
-app.post('/api/apiframe/generate', async (req, res) => {
+app.post(['/api/provider/generate', '/api/apiframe/generate'], async (req, res) => {
   try {
     const {
       prompt,
@@ -428,7 +529,7 @@ app.post('/api/apiframe/generate', async (req, res) => {
       compare = null,
       requestId: providedRequestId
     } = req.body || {};
-    const cfg = resolveApiFrameConfig(generator);
+    const cfg = resolveProviderConfig(generator);
     const requestId =
       typeof providedRequestId === 'string' && providedRequestId.trim()
         ? providedRequestId.trim()
@@ -451,8 +552,9 @@ app.post('/api/apiframe/generate', async (req, res) => {
 
     const upstreamUrl = `${cfg.baseUrl}${cfg.generatePath}`;
     const upstreamBody = {
-      prompt,
-      ...payload
+      ...payload,
+      model: payload.model || cfg.model,
+      prompt
     };
 
     const upstreamRes = await fetch(upstreamUrl, {
@@ -488,23 +590,23 @@ app.post('/api/apiframe/generate', async (req, res) => {
       responseBody: data
     });
 
-    res.status(upstreamRes.status).json({
-      ...data,
-      _pnf: {
-        ...normalized,
-        hasCompareContext: Boolean(compare)
-      }
+    sendUpstreamResponse({
+      res,
+      upstreamRes,
+      data,
+      normalized,
+      hasCompareContext: Boolean(compare)
     });
   } catch (error) {
-    res.status(500).json({ error: error.message || 'APIframe generate request failed.' });
+    sendInternalServerError(res, error, 'Provider generate request failed.');
   }
 });
 
-app.get('/api/apiframe/status/:jobId', async (req, res) => {
+app.get(['/api/provider/status/:jobId', '/api/apiframe/status/:jobId'], async (req, res) => {
   try {
     const { generator = 'Suno' } = req.query || {};
     const { jobId } = req.params;
-    const cfg = resolveApiFrameConfig(generator);
+    const cfg = resolveProviderConfig(generator);
 
     if (!cfg.apiKey) {
       res.status(400).json({ error: `Missing API key for generator: ${generator}` });
@@ -557,16 +659,18 @@ app.get('/api/apiframe/status/:jobId', async (req, res) => {
       });
     }
 
-    res.status(upstreamRes.status).json({
-      ...data,
-      _pnf: normalized
+    sendUpstreamResponse({
+      res,
+      upstreamRes,
+      data,
+      normalized
     });
   } catch (error) {
-    res.status(500).json({ error: error.message || 'APIframe status request failed.' });
+    sendInternalServerError(res, error, 'Provider status request failed.');
   }
 });
 
-app.get('/api/apiframe/requests/:requestId', async (req, res) => {
+app.get(['/api/provider/requests/:requestId', '/api/apiframe/requests/:requestId'], async (req, res) => {
   const { requestId } = req.params;
   if (!requestId) {
     res.status(400).json({ error: 'requestId is required.' });
@@ -586,9 +690,9 @@ app.get('/', (req, res) => {
   res.send('Hello from your Express server!');
 });
 
-app.get('/api/apiframe/health', (req, res) => {
+app.get(['/api/provider/health', '/api/apiframe/health'], (req, res) => {
   const { generator = 'Suno' } = req.query || {};
-  const cfg = resolveApiFrameConfig(generator);
+  const cfg = resolveProviderConfig(generator);
 
   const keyPresent = Boolean(cfg.apiKey && String(cfg.apiKey).trim());
   const baseUrlPresent = Boolean(cfg.baseUrl && String(cfg.baseUrl).trim());
@@ -611,8 +715,59 @@ app.get('/api/apiframe/health', (req, res) => {
       baseUrl: cfg.baseUrl || '',
       generatePath: cfg.generatePath || '',
       statusPathTemplate: cfg.statusPathTemplate || ''
+    },
+    persistence: {
+      mysqlConfigured: Boolean(getMySqlConfig()),
+      mysqlConnected: Boolean(mysqlPool),
+      mode: mysqlPool ? 'mysql' : 'memory'
     }
   });
+});
+
+app.get('/api/mysql/health', async (req, res) => {
+  const config = getMySqlConfig();
+  if (!config) {
+    res.status(503).json({
+      ok: false,
+      configured: false,
+      connected: false,
+      error: 'MySQL is not configured. Set MYSQL_HOST, MYSQL_USER, and MYSQL_DATABASE.',
+      mode: 'memory'
+    });
+    return;
+  }
+
+  try {
+    await ensureMySqlInit();
+    if (!mysqlPool) {
+      throw new Error('MySQL pool unavailable after initialization.');
+    }
+
+    await mysqlPool.execute('SELECT 1 AS ok');
+
+    res.json({
+      ok: true,
+      configured: true,
+      connected: true,
+      host: config.host,
+      port: config.port,
+      database: config.database,
+      table: mysqlTable,
+      mode: 'mysql'
+    });
+  } catch (error) {
+    res.status(503).json({
+      ok: false,
+      configured: true,
+      connected: false,
+      host: config.host,
+      port: config.port,
+      database: config.database,
+      table: mysqlTable,
+      error: error.message,
+      mode: 'memory'
+    });
+  }
 });
 
 validateStartup();

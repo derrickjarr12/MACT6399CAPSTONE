@@ -26,10 +26,7 @@ function bootstrapEnv() {
   envBootstrapped = true;
 }
 
-const requiredKeys = [
-  'ELEVENLABS_API_KEY',
-  'ELEVENLABS_VOICE_ID'
-];
+const requiredKeys = [];
 
 const providerKeys = [
   'SUNO_API_KEY',
@@ -37,6 +34,8 @@ const providerKeys = [
 ];
 
 const optionalKeys = [
+  'ELEVENLABS_API_KEY',
+  'ELEVENLABS_VOICE_ID',
   'PREFERRED_PROVIDER',
   'FALLBACK_PROVIDERS',
   'PROVIDER_REQUEST_TIMEOUT',
@@ -51,7 +50,7 @@ function loadEnv() {
   const missingProviders = [];
   const warnings = [];
 
-  // Check required keys
+  // Check always-required keys
   for (const key of requiredKeys) {
     const value = process.env[key];
     if (!value) {
@@ -83,6 +82,22 @@ function loadEnv() {
     }
   }
 
+  // ElevenLabs fields are optional in general, but if key is provided then a voice ID is required.
+  const elevenLabsKey = process.env.ELEVENLABS_API_KEY;
+  const elevenLabsVoiceId = process.env.ELEVENLABS_VOICE_ID;
+
+  if (elevenLabsKey && (!elevenLabsVoiceId || elevenLabsVoiceId.includes('your_'))) {
+    missing.push('ELEVENLABS_VOICE_ID');
+  }
+
+  if (elevenLabsKey && elevenLabsKey.includes('your_')) {
+    warnings.push('ELEVENLABS_API_KEY appears to be a placeholder, not a real key');
+  }
+
+  if (elevenLabsVoiceId && elevenLabsVoiceId.includes('your_')) {
+    warnings.push('ELEVENLABS_VOICE_ID appears to be a placeholder, not a real key');
+  }
+
   // Fail if required keys are missing
   if (missing.length > 0) {
     const errorMsg = `Missing required environment variables:\n  ${missing.join('\n  ')}\n\nCopy .env.example to .env and add your API keys.`;
@@ -90,8 +105,7 @@ function loadEnv() {
   }
 
   if (!config.SUNO_API_KEY && !config.MUREKA_API_KEY) {
-    const errorMsg = `At least one music provider key is required:\n  SUNO_API_KEY or MUREKA_API_KEY\n\nCopy .env.example to .env and add your API keys.`;
-    throw new Error(errorMsg);
+    warnings.push('No music provider key configured. Generation endpoints will return key-missing errors until SUNO_API_KEY or MUREKA_API_KEY is set.');
   }
 
   // Log warnings if any

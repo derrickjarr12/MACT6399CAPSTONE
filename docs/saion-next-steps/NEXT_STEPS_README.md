@@ -98,3 +98,21 @@ Definition of done (Week 4):
 
 ## Submission Summary
 This plan enforces feature freeze discipline and focuses on reliability, regression safety, and demo readiness through structured testing over four weeks.
+
+## V2 Product Concept Option: SAI
+
+Statement:
+
+SAI is a friendly vocal coach and app guide for SAION, designed to help users understand the app and access singing support without taking control away from the user.
+
+Boundary for V2 concept research:
+
+1. SAI is guidance-only.
+2. SAI does not generate content for users.
+3. SAI does not auto-tune or perform vocal correction.
+4. SAI does not automate sonic or visual decisions.
+
+See also:
+
+- `docs/saion-next-steps/V2_OPTIONS_NOTES.md`
+- `docs/saion-next-steps/V2_PRIORITIZATION_MATRIX.md`

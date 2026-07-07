@@ -10,8 +10,8 @@ function validateStartup() {
   try {
     const config = loadEnv();
     console.log('✅ Environment validation passed.');
-    console.log('   - Music provider: at least one key present (Suno or Mureka)');
-    console.log('   - Voice provider: ElevenLabs key + voice ID present');
+    console.log('   - Music provider: optional for startup (required when calling generation endpoints)');
+    console.log('   - Voice provider: ElevenLabs optional (requires voice ID if key is set)');
     console.log(`   - Suno API key: ${config.SUNO_API_KEY ? '✓' : '✗'}`);
     console.log(`   - Mureka API key: ${config.MUREKA_API_KEY ? '✓' : '✗'}`);
     console.log(`   - ElevenLabs API key: ${config.ELEVENLABS_API_KEY ? '✓' : '✗'}`);

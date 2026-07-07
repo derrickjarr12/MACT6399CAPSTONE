@@ -1,80 +1,95 @@
-# SAION Quick Guide
+# SAION User Guide
 
-Use the section that matches your comfort level:
+Welcome to SAION. This guide walks you through the app the way a finished product guide should: simple steps, plain language, and no technical setup.
 
-- **Simple Mode (Non-Technical)**: fast, plain-language steps.
-- **Technical Mode (Light Technical)**: practical setup details without deep backend internals.
+## 1. Start Your Session
 
-## Simple Mode (Non-Technical)
+1. Open SAION.
+2. Choose your session title.
+3. Pick your main style direction (emotion, vocal feel, and overall vibe).
 
-### 1. Open SAION
+Tip: Start broad first. You can fine-tune details after your first result.
 
-1. Start the SAION app.
-2. Open it in your browser at **http://localhost:5174**.
+## 2. Create Your First Result
 
-### 2. Make a First Output
+1. Go to the main creation area.
+2. Enter your prompt in your own words.
+3. Adjust the core controls to match your goal.
+4. Select your preferred generator.
+5. Click Generate.
 
-1. Adjust the main on-screen controls to set the mood/style.
-2. Type or edit your prompt.
-3. Click the generate action in the app.
-4. Wait for the new output to appear.
-5. Play it back and adjust controls for the next version.
+SAION will process your request and return a new result when ready.
 
-### 3. Optional: Update Globe Visual Texture
+## 3. Listen and Refine
 
-1. Go to **CONTROLS**.
-2. Find **Globe Textures (Digital Ocean)**.
-3. Paste a public image URL into **Texture URL**.
-4. Confirm you see a success message.
+1. Play the generated result.
+2. Compare with your original reference if available.
+3. Adjust controls such as emotion intensity, vocal texture, timing, and effects.
+4. Generate again to create the next version.
 
-### 4. If Something Fails
+Best practice: Change only one or two controls at a time so you can hear exactly what improved.
 
-1. Refresh the page.
-2. Confirm the app is running.
-3. Retry with a simpler prompt.
-4. If texture fails, check the image link is public.
+## 4. Use A/B Version Workflow
 
-## Technical Mode (Light Technical)
+1. Save a promising result as Version A.
+2. Create a new variation and save it as Version B.
+3. Switch between A and B to compare quickly.
+4. Keep the stronger version and continue refining.
 
-### 1. Start Local GUI
+This keeps your creative direction clear and prevents losing good ideas.
 
-From project root:
+## 5. Personalize the Visual Experience
 
-```bash
-cd gui
-npm install
-npm run dev
-```
+1. Open the visual controls area.
+2. Choose visual settings that support your current mood and workflow.
+3. If desired, add your own texture source for the globe.
+4. Confirm the visual update message appears.
 
-Expected local URL: **http://localhost:5174**
+Use visual presets that help you focus: calm, energetic, cinematic, or minimal.
 
-### 2. Runtime Checklist
+## 6. Manage Playback Smoothly
 
-1. Confirm local environment variables are set in `.env`.
-2. Confirm API target/base URL values are valid.
-3. Confirm required services are reachable before generation tests.
+1. Use play/pause to review sections quickly.
+2. Use previous/next to move between available tracks.
+3. Adjust volume to a comfortable level before making decisions.
+4. Replay key moments after each change.
 
-### 3. Generation Loop
+Tip: Short replay loops are great for judging vocal tone and timing updates.
 
-1. Adjust performance controls.
-2. Send generation request.
-3. Validate output readiness and playback.
-4. Iterate parameters and compare versions.
+## 7. Save and Export Your Work
 
-### 4. Texture/CDN Notes (Optional)
+1. Save your session regularly.
+2. Export notation or session data when you want a snapshot.
+3. Keep clear names for versions so you can return later.
 
-1. Texture URL must be publicly readable.
-2. CORS must allow your local origin.
-3. Use stable filename strategy if you are testing polling-based refresh.
+Example naming style:
+- Verse idea warm vocal
+- Chorus version brighter tone
+- Final candidate take
 
-See also:
-- `DIGITAL_OCEAN_README.md`
-- `DIGITAL_OCEAN_TEXTURE_GUIDE.md`
+## 8. Quick Troubleshooting
 
-### 5. Quick Smoke Test
+If a generation does not complete:
 
-1. App opens on local URL.
-2. Controls update UI state.
-3. One generation request completes.
-4. Playback starts successfully.
-5. Optional texture load shows success indicator.
+1. Try once more.
+2. Simplify your prompt.
+3. Reduce the number of changes in one pass.
+4. Continue from the last successful version.
+
+If playback does not sound right:
+
+1. Check volume and selected track.
+2. Replay from the start.
+3. Switch to another saved version and compare.
+
+## 9. Fast Daily Workflow (Recommended)
+
+1. Set mood and session intent.
+2. Generate a baseline result.
+3. Save A.
+4. Refine and generate.
+5. Save B.
+6. Compare and choose.
+7. Export your best version.
+
+That is the full SAION flow: create, compare, refine, and finalize with confidence.

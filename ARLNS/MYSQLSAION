@@ -1,0 +1,44 @@
+-- ============================================================
+-- SAION Database — Local + Digital Ocean Ready
+-- Run this locally now. Same file deploys to Digital Ocean.
+-- ============================================================
+
+CREATE DATABASE IF NOT EXISTS SAION;
+USE SAION;
+
+-- ----------------------------------------------------------------
+-- digital_ocean_assets
+-- Tracks all image assets and their CDN URLs once uploaded to
+-- Digital Ocean Spaces. Fill in cdn_url + space_region after DO setup.
+-- ----------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS digital_ocean_assets (
+    id            INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    asset_name    VARCHAR(255)  NOT NULL,
+    filename      VARCHAR(255)  NOT NULL,
+    cdn_url       TEXT,
+    space_region  VARCHAR(50),
+    is_public     TINYINT(1)    NOT NULL DEFAULT 1,
+    uploaded_at   DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at    DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uq_filename (filename),
+    INDEX idx_asset_name (asset_name)
+);
+
+-- ----------------------------------------------------------------
+-- Seed rows — one per image used by GUI Visualize presets
+-- cdn_url left NULL until Digital Ocean Spaces is connected
+-- ----------------------------------------------------------------
+INSERT IGNORE INTO digital_ocean_assets (asset_name, filename) VALUES
+    ('Saion',       'SAION.png'),
+    ('Atlantist',   'Atlantist.png'),
+    ('Bubble_LIps', 'Bubble_LIps.png'),
+    ('Buttons',     'buttons.png'),
+    ('Red_Kiss',    'Red_Kiss.png'),
+    ('Shot_Glass',  'Shot_Glass.png'),
+    ('Shots',       'Shots.jpeg'),
+    ('Zero_One',    '0_1.jpeg');
+
+-- ----------------------------------------------------------------
+-- Verify
+-- ----------------------------------------------------------------
+SELECT * FROM digital_ocean_assets;

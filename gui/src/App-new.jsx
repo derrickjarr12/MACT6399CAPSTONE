@@ -11,6 +11,14 @@ import redKissImage from "../images/logos/Red_Kiss.png";
 import shotGlassImage from "../images/logos/Shot_Glass.png";
 import shotsImage from "../images/logos/Shots.jpeg";
 import zeroOneImage from "../images/logos/0_1.jpeg";
+import saionThumbImage from "../images/logos/thumbs/SAION.png";
+import atlantistThumbImage from "../images/logos/thumbs/Atlantist.png";
+import bubbleLipsThumbImage from "../images/logos/thumbs/Bubble_LIps.png";
+import buttonsThumbImage from "../images/logos/thumbs/buttons.png";
+import redKissThumbImage from "../images/logos/thumbs/Red_Kiss.png";
+import shotGlassThumbImage from "../images/logos/thumbs/Shot_Glass.png";
+import shotsThumbImage from "../images/logos/thumbs/Shots.jpeg";
+import zeroOneThumbImage from "../images/logos/thumbs/0_1.jpeg";
 const HolographicGlobe = lazy(() => import("./HolographicGlobe"));
 
 function CornerDial({ value, onChange, color, label, style }) {
@@ -120,6 +128,63 @@ function isFailureStatus(payload) {
   const raw = payload?.status || payload?.state || payload?.jobStatus || payload?.job_status;
   if (!raw || typeof raw !== "string") return false;
   return ["failed", "error", "cancelled", "canceled"].includes(raw.toLowerCase());
+}
+
+function extractApiErrorMessage(payload) {
+  if (!payload || typeof payload !== "object") return "";
+
+  const candidates = [
+    payload.error,
+    payload.message,
+    payload.detail,
+    payload.details,
+    payload?.data?.error,
+    payload?.data?.message,
+    payload?.result?.error,
+    payload?.result?.message
+  ];
+
+  for (const candidate of candidates) {
+    if (typeof candidate === "string" && candidate.trim()) return candidate.trim();
+  }
+
+  return "";
+}
+
+function mapHttpStatusToUiMessage(status, fallback = "Request failed.") {
+  if (status === 200) return "Request completed successfully.";
+  if (status === 401) return "Unauthorized (401). Check your provider API key.";
+  if (status === 404) return "Resource not found (404). Check provider endpoint or job id.";
+  if (status === 429) return "Rate limited (429). Slow down and retry in a moment.";
+  if (status === 500) return "Provider server error (500). Try again shortly.";
+  return fallback;
+}
+
+function mapHttpStatusToNoticeTone(status) {
+  if (status === 200) return "success";
+  if (status === 429) return "warning";
+  if (status >= 400) return "error";
+  return "info";
+}
+
+function createHttpError(response, data, fallbackMessage) {
+  const statusFromPayload = Number(data?._pnf?.http?.status);
+  const status = Number.isFinite(statusFromPayload) ? statusFromPayload : response.status;
+  const apiMessage = extractApiErrorMessage(data);
+  const message = apiMessage || mapHttpStatusToUiMessage(status, fallbackMessage);
+  const error = new Error(message);
+  error.httpStatus = status;
+  error.uiMessage = mapHttpStatusToUiMessage(status, message);
+  error.noticeTone = mapHttpStatusToNoticeTone(status);
+  return error;
+}
+
+async function readJsonSafe(response) {
+  try {
+    return await response.json();
+  } catch {
+    return {};
+  }
 }
 
 function buildNotation(settings, context, fxControls) {
@@ -525,56 +590,56 @@ const TEXTURE_PRESETS = [
   {
     id: "saion",
     label: "Saion",
-    thumbnailUrl: saionLogo,
+    thumbnailUrl: saionThumbImage,
     textureUrl: saionLogo,
     normalMapUrl: null
   },
   {
     id: "atlantist",
     label: "Atlantist",
-    thumbnailUrl: atlantistImage,
+    thumbnailUrl: atlantistThumbImage,
     textureUrl: atlantistImage,
     normalMapUrl: null
   },
   {
     id: "bubble-lips",
     label: "Bubble Lips",
-    thumbnailUrl: bubbleLipsImage,
+    thumbnailUrl: bubbleLipsThumbImage,
     textureUrl: bubbleLipsImage,
     normalMapUrl: null
   },
   {
     id: "buttons",
     label: "Buttons",
-    thumbnailUrl: buttonsImage,
+    thumbnailUrl: buttonsThumbImage,
     textureUrl: buttonsImage,
     normalMapUrl: null
   },
   {
     id: "red-kiss",
     label: "Red Kiss",
-    thumbnailUrl: redKissImage,
+    thumbnailUrl: redKissThumbImage,
     textureUrl: redKissImage,
     normalMapUrl: null
   },
   {
     id: "shot-glass",
     label: "Shot Glass",
-    thumbnailUrl: shotGlassImage,
+    thumbnailUrl: shotGlassThumbImage,
     textureUrl: shotGlassImage,
     normalMapUrl: null
   },
   {
     id: "shots",
     label: "Shots",
-    thumbnailUrl: shotsImage,
+    thumbnailUrl: shotsThumbImage,
     textureUrl: shotsImage,
     normalMapUrl: null
   },
   {
     id: "zero-one",
     label: "Zero One",
-    thumbnailUrl: zeroOneImage,
+    thumbnailUrl: zeroOneThumbImage,
     textureUrl: zeroOneImage,
     normalMapUrl: null
   }
@@ -601,6 +666,14 @@ export default function App() {
   const [waveformSeed, setWaveformSeed] = useState(1);
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [savedState, setSavedState] = useState("NOT SAVED");
+  const [transportNotice, setTransportNotice] = useState(null);
+  useEffect(() => {
+    if (!transportNotice) return undefined;
+    const timer = window.setTimeout(() => {
+      setTransportNotice(null);
+    }, 4200);
+    return () => window.clearTimeout(timer);
+  }, [transportNotice]);
   const [originalPrompt, setOriginalPrompt] = useState(
     "Original idea prompt: soulful modern R&B with intimate vocal dynamics and emotional phrasing."
   );
@@ -1514,6 +1587,15 @@ export default function App() {
         setTransportStatus(next ? "LIBRARY OPEN" : "LIBRARY CLOSED");
         return next;
       });
+      return;
+    }
+
+    if (action === "disconnect") {
+      unloadAudio();
+      setIsPlaying(false);
+      setActiveAudioIndex(0);
+      setTransportStatus("DISCONNECTED");
+      setTransportNotice({ tone: "info", message: "Audio transport disconnected." });
     }
   };
 
@@ -1718,6 +1800,7 @@ export default function App() {
       setIsGenerating(true);
       setTransportStatus("GENERATING");
       setSavedState("GENERATING AUDIO");
+      setTransportNotice({ tone: "info", message: "Uplink active. Rendering in progress." });
 
       const hasSourceAudio = Boolean(beforeAudio.trim());
       const sourceAudioValue = beforeAudio.trim();
@@ -1773,9 +1856,9 @@ export default function App() {
         })
       });
 
-      const generateData = await generateRes.json();
+      const generateData = await readJsonSafe(generateRes);
       if (!generateRes.ok) {
-        throw new Error(generateData?.error || "Generate request failed.");
+        throw createHttpError(generateRes, generateData, "Generate request failed.");
       }
 
       const immediateAudio = extractAudioUrl(generateData);
@@ -1785,6 +1868,7 @@ export default function App() {
         setAfterAudioFileName("");
         setSavedState("AUDIO GENERATED");
         setTransportStatus("READY GENERATED");
+        setTransportNotice({ tone: "success", message: "Signal received. Audio is ready." });
         return;
       }
 
@@ -1797,9 +1881,9 @@ export default function App() {
       for (let attempt = 0; attempt < maxPolls; attempt += 1) {
         await new Promise((resolve) => setTimeout(resolve, 3000));
         const statusRes = await fetch(`${apiBase}/api/apiframe/status/${encodeURIComponent(jobId)}?generator=${encodeURIComponent(generator)}`);
-        const statusData = await statusRes.json();
+        const statusData = await readJsonSafe(statusRes);
         if (!statusRes.ok) {
-          throw new Error(statusData?.error || "Status request failed.");
+          throw createHttpError(statusRes, statusData, "Status request failed.");
         }
 
         const polledAudio = extractAudioUrl(statusData);
@@ -1809,6 +1893,7 @@ export default function App() {
           setAfterAudioFileName("");
           setSavedState("AUDIO GENERATED");
           setTransportStatus("READY GENERATED");
+          setTransportNotice({ tone: "success", message: "Render complete. Track linked." });
           return;
         }
 
@@ -1824,7 +1909,15 @@ export default function App() {
       throw new Error("Generation timed out while polling status.");
     } catch (error) {
       setSavedState("GENERATION FAILED");
-      setTransportStatus("GENERATION FAILED");
+      const userMessage =
+        (error && typeof error.uiMessage === "string" && error.uiMessage) ||
+        (error && typeof error.message === "string" && error.message) ||
+        "GENERATION FAILED";
+      setTransportStatus(userMessage.toUpperCase());
+      setTransportNotice({
+        tone: (error && error.noticeTone) || "error",
+        message: userMessage
+      });
     } finally {
       setIsGenerating(false);
     }
@@ -2164,6 +2257,7 @@ export default function App() {
                         insideView={insideView}
                         textureUrl={textureUrl}
                         normalMapUrl={normalMapUrl}
+                        texturePollMs={30000}
                       />
                     </Suspense>
                   </div>
@@ -2680,6 +2774,13 @@ export default function App() {
             >
               📁
             </button>
+            <button
+              className="control-btn disconnect"
+              onClick={() => triggerTransport("disconnect")}
+              aria-label="Disconnect transport"
+            >
+              ⏏
+            </button>
           </div>
 
           <div className="volume-control">
@@ -2724,6 +2825,11 @@ export default function App() {
             </button>
           </div>
           <div className="waveform-label">{`${transportStatus} · ${savedState}`}</div>
+          {transportNotice && (
+            <div className={`transport-notice is-${transportNotice.tone}`} role="status" aria-live="polite">
+              {transportNotice.message}
+            </div>
+          )}
         </div>
       </footer>
     </div>

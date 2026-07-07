@@ -26,7 +26,10 @@ function HolographicGlobe({
   colorSpeed = 0.28,
   insideView = false,
   textureUrl = null,
-  normalMapUrl = null
+  normalMapUrl = null,
+  texturePollMs = 30000,
+  textureAutoRefresh = true,
+  onTextureUpdate
 }) {
   const mountRef = useRef(null);
   const driveRef = useRef(clamp01(drive));
@@ -48,12 +51,17 @@ function HolographicGlobe({
   const colorSpeedRef = useRef(colorSpeed);
   const insideViewRef = useRef(insideView);
   const insideAmountRef = useRef(0);
-  
+
   // Texture management refs
   const textureLoaderRef = useRef(new THREE.TextureLoader());
-  const currentTextureUrlRef = useRef(textureUrl);
-  const sceneRef = useRef(null);
+  const activeTextureRef = useRef(null);
+  const activeNormalMapRef = useRef(null);
   const globeMeshRef = useRef(null);
+  const onTextureUpdateRef = useRef(onTextureUpdate);
+
+  useEffect(() => {
+    onTextureUpdateRef.current = onTextureUpdate;
+  }, [onTextureUpdate]);
 
   useEffect(() => {
     driveRef.current = clamp01(drive);
@@ -116,54 +124,134 @@ function HolographicGlobe({
     insideViewRef.current = insideView;
   }, [insideView]);
 
-  // Texture loading effect
+  // Texture loading + optional polling effect
   useEffect(() => {
-    if (!textureUrl) return;
+    if (!textureUrl) {
+      const globeMaterial = globeMeshRef.current?.material;
+      const uniforms = globeMaterial?.uniforms;
+      if (uniforms?.uTexture) uniforms.uTexture.value = null;
+      if (uniforms?.uUseTexture) uniforms.uUseTexture.value = 0;
+      if (activeTextureRef.current) {
+        activeTextureRef.current.dispose();
+        activeTextureRef.current = null;
+      }
+      if (typeof onTextureUpdateRef.current === "function") {
+        onTextureUpdateRef.current({
+          kind: "texture",
+          success: true,
+          cleared: true
+        });
+      }
+      return undefined;
+    }
 
-    const loadTexture = (url) => {
+    const addCacheBust = (url) => {
+      const separator = url.includes("?") ? "&" : "?";
+      return `${url}${separator}t=${Date.now()}`;
+    };
+
+    const loadTexture = (url, source) => {
       textureLoaderRef.current.load(
         url,
         (texture) => {
+          const globeMaterial = globeMeshRef.current?.material;
+          const uniforms = globeMaterial?.uniforms;
+
           texture.wrapS = THREE.RepeatWrapping;
           texture.wrapT = THREE.RepeatWrapping;
           texture.minFilter = THREE.LinearFilter;
           texture.magFilter = THREE.LinearFilter;
           
-          // Update globe mesh if it exists
-          if (globeMeshRef.current && globeMeshRef.current.material) {
-            globeMeshRef.current.material.map = texture;
-            globeMeshRef.current.material.needsUpdate = true;
+          if (uniforms?.uTexture) uniforms.uTexture.value = texture;
+          if (uniforms?.uUseTexture) uniforms.uUseTexture.value = 1;
+
+          if (activeTextureRef.current) {
+            activeTextureRef.current.dispose();
           }
-          
-          currentTextureUrlRef.current = url;
-          console.log('✅ Loaded texture:', url);
+
+          activeTextureRef.current = texture;
+          if (globeMaterial) {
+            globeMaterial.needsUpdate = true;
+          }
+
+          if (typeof onTextureUpdateRef.current === "function") {
+            onTextureUpdateRef.current({
+              kind: "texture",
+              success: true,
+              source,
+              requestedUrl: textureUrl,
+              loadedUrl: url
+            });
+          }
+
+          console.log("✅ Loaded texture:", url);
         },
         undefined,
         (error) => {
-          console.warn('⚠️ Failed to load texture:', error);
+          if (typeof onTextureUpdateRef.current === "function") {
+            onTextureUpdateRef.current({
+              kind: "texture",
+              success: false,
+              source,
+              requestedUrl: textureUrl,
+              loadedUrl: url,
+              error: error?.message || "Failed to load texture"
+            });
+          }
+          console.warn("⚠️ Failed to load texture:", error);
         }
       );
     };
 
-    loadTexture(textureUrl);
-  }, [textureUrl]);
+    loadTexture(addCacheBust(textureUrl), "initial");
+
+    if (!textureAutoRefresh || texturePollMs <= 0) {
+      return undefined;
+    }
+
+    const pollInterval = setInterval(() => {
+      loadTexture(addCacheBust(textureUrl), "poll");
+    }, texturePollMs);
+
+    return () => clearInterval(pollInterval);
+  }, [textureUrl, textureAutoRefresh, texturePollMs]);
 
   // Normal map loading effect
   useEffect(() => {
-    if (!normalMapUrl) return;
+    if (!normalMapUrl) {
+      const globeMaterial = globeMeshRef.current?.material;
+      const uniforms = globeMaterial?.uniforms;
+      if (uniforms?.uNormalMap) uniforms.uNormalMap.value = null;
+      if (uniforms?.uUseNormalMap) uniforms.uUseNormalMap.value = 0;
+      if (activeNormalMapRef.current) {
+        activeNormalMapRef.current.dispose();
+        activeNormalMapRef.current = null;
+      }
+      return;
+    }
 
     textureLoaderRef.current.load(
       normalMapUrl,
       (texture) => {
-        if (globeMeshRef.current && globeMeshRef.current.material) {
-          globeMeshRef.current.material.normalMap = texture;
-          globeMeshRef.current.material.needsUpdate = true;
+        const globeMaterial = globeMeshRef.current?.material;
+        const uniforms = globeMaterial?.uniforms;
+
+        if (uniforms?.uNormalMap) uniforms.uNormalMap.value = texture;
+        if (uniforms?.uUseNormalMap) uniforms.uUseNormalMap.value = 1;
+
+        if (activeNormalMapRef.current) {
+          activeNormalMapRef.current.dispose();
         }
-        console.log('✅ Loaded normal map:', normalMapUrl);
+
+        activeNormalMapRef.current = texture;
+        if (globeMaterial) {
+          globeMaterial.needsUpdate = true;
+        }
+        console.log("✅ Loaded normal map:", normalMapUrl);
       },
       undefined,
       (error) => {
-        console.warn('⚠️ Failed to load normal map:', error);
+        console.warn("⚠️ Failed to load normal map:", error);
       }
     );
   }, [normalMapUrl]);
@@ -175,7 +263,6 @@ function HolographicGlobe({
     }
 
     const scene = new THREE.Scene();
-    sceneRef.current = scene; // Store reference for texture management
     const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 100);
     camera.position.set(0, 0, 3.8);
 
@@ -201,6 +288,10 @@ function HolographicGlobe({
       uPaletteShift: { value: 0 },
       uColorSpeed: { value: 0.28 },
       uInsideAmount: { value: 0 },
+      uTexture: { value: null },
+      uUseTexture: { value: 0 },
+      uNormalMap: { value: null },
+      uUseNormalMap: { value: 0 },
       uGlow: { value: new THREE.Color("#6ce8ff") },
       uGlow2: { value: new THREE.Color("#8f7bff") },
       uGlow3: { value: new THREE.Color("#ff7fd3") }
@@ -296,12 +387,21 @@ function HolographicGlobe({
         uniform float uPaletteShift;
         uniform float uColorSpeed;
         uniform float uInsideAmount;
+        uniform sampler2D uTexture;
+        uniform float uUseTexture;
+        uniform sampler2D uNormalMap;
+        uniform float uUseNormalMap;
         uniform vec3 uGlow;
         uniform vec3 uGlow2;
         uniform vec3 uGlow3;
 
         void main() {
           vec3 normal = normalize(vNormal);
+          if (uUseNormalMap > 0.5) {
+            vec3 sampledNormal = texture2D(uNormalMap, vUv).xyz * 2.0 - 1.0;
+            normal = normalize(normal + sampledNormal * 0.35);
+          }
+
           vec3 viewDir = normalize(cameraPosition - vWorldPosition);
           float fresnel = pow(1.0 - max(dot(normal, viewDir), 0.0), 3.2);
 
@@ -410,6 +510,11 @@ function HolographicGlobe({
           color.r += fringe * (0.75 + 0.25 * sin(uTime * 2.3 + ang * 2.0)) * 1.2;
           color.g += fringe * (0.55 + 0.45 * sin(uTime * 1.9 - ang * 1.5)) * 0.9;
           color.b += fringe * (0.65 + 0.35 * cos(uTime * 2.0 + ang * 2.5)) * 1.1;
+
+          if (uUseTexture > 0.5) {
+            vec3 sampledTexture = texture2D(uTexture, vUv).rgb;
+            color = mix(color, color * sampledTexture, 0.62);
+          }
 
           float alpha = 0.72 + fresnel * 0.26 + uPulse * 0.06;
           gl_FragColor = vec4(color, alpha);
@@ -1025,6 +1130,14 @@ function HolographicGlobe({
     return () => {
       window.cancelAnimationFrame(frameId);
       resizeObserver.disconnect();
+      if (activeTextureRef.current) {
+        activeTextureRef.current.dispose();
+        activeTextureRef.current = null;
+      }
+      if (activeNormalMapRef.current) {
+        activeNormalMapRef.current.dispose();
+        activeNormalMapRef.current = null;
+      }
       geometry.dispose();
       material.dispose();
       core.geometry.dispose();
