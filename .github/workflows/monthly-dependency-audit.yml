@@ -22,9 +22,10 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
 
       - name: Generate dependency report
+        id: generate_report
         run: |
           mkdir -p reports
           REPORT_FILE="reports/dependency-audit-${GITHUB_RUN_ID}.md"
@@ -39,7 +40,7 @@ jobs:
             local path="$1"
             echo "## ${path}" >> "$REPORT_FILE"
             echo '```' >> "$REPORT_FILE"
-            (cd "$path" && npm ci --silent >/dev/null 2>&1 && npm outdated || true) >> "$REPORT_FILE"
+            (cd "$path" && npm install --silent >/dev/null 2>&1 && npm outdated || true) >> "$REPORT_FILE"
             echo '```' >> "$REPORT_FILE"
             echo >> "$REPORT_FILE"
           }
@@ -48,18 +49,18 @@ jobs:
           run_outdated "gui"
           run_outdated "PNF-AIMS/gui"
 
-          echo "REPORT_FILE=$REPORT_FILE" >> "$GITHUB_ENV"
+          echo "report_file=$REPORT_FILE" >> "$GITHUB_OUTPUT"
 
       - name: Upload report artifact
         uses: actions/upload-artifact@v4
         with:
           name: dependency-audit-report
-          path: ${{ env.REPORT_FILE }}
+          path: ${{ steps.generate_report.outputs.report_file }}
 
       - name: Create monthly issue
         uses: actions/github-script@v7
         env:
-          REPORT_FILE: ${{ env.REPORT_FILE }}
+          REPORT_FILE: ${{ steps.generate_report.outputs.report_file }}
         with:
           script: |
             const fs = require('fs');
