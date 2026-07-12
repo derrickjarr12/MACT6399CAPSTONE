@@ -45,16 +45,49 @@ app.use((req, res, next) => {
   next();
 });
 
-function resolveProviderConfig(generator = 'Suno') {
-  const normalized = String(generator || 'Suno').toLowerCase();
+function resolveProviderConfig(generator = process.env.PREFERRED_PROVIDER || 'mureka') {
+  const normalized = String(generator || process.env.PREFERRED_PROVIDER || 'mureka').toLowerCase();
+
+  const parsePathList = (value) => {
+    if (!value || typeof value !== 'string') return [];
+    const unique = new Set();
+    for (const rawPart of value.split(',')) {
+      const part = rawPart.trim();
+      if (!part) continue;
+      const normalizedPart = part.startsWith('/') ? part : `/${part}`;
+      unique.add(normalizedPart);
+    }
+    return [...unique];
+  };
+
+  const buildPathCandidates = ({ primary, backups, defaults = [] }) => {
+    const primaryList = parsePathList(primary);
+    const backupList = parsePathList(backups);
+    const defaultList = defaults.filter(Boolean).map((entry) => (entry.startsWith('/') ? entry : `/${entry}`));
+    return [...new Set([...primaryList, ...backupList, ...defaultList])];
+  };
 
   if (normalized === 'mureka') {
+    const generatePathCandidates = buildPathCandidates({
+      primary: process.env.MUREKA_GENERATE_PATH,
+      backups: process.env.MUREKA_GENERATE_PATH_BACKUPS,
+      defaults: ['/v1/generate']
+    });
+    const statusPathCandidates = buildPathCandidates({
+      primary: process.env.MUREKA_STATUS_PATH,
+      backups: process.env.MUREKA_STATUS_PATH_BACKUPS,
+      defaults: ['/v1/jobs/{jobId}']
+    });
+
     return {
       normalized,
       apiKey: process.env.MUREKA_API_KEY,
-      baseUrl: (process.env.MUREKA_BASE_URL || '').replace(/\/$/, ''),
-      generatePath: process.env.MUREKA_GENERATE_PATH || '',
-      statusPathTemplate: process.env.MUREKA_STATUS_PATH || ''
+      baseUrl: (process.env.MUREKA_BASE_URL || 'https://api.mureka.ai').replace(/\/$/, ''),
+      generatePathCandidates,
+      statusPathCandidates,
+      generatePath: generatePathCandidates[0] || '',
+      statusPathTemplate: statusPathCandidates[0] || '',
+      statusJobIdQueryKey: process.env.MUREKA_STATUS_JOBID_QUERY_KEY || 'jobId'
     };
   }
 
@@ -70,31 +103,151 @@ function resolveProviderConfig(generator = 'Suno') {
   }
 
   if (normalized === 'elevenlabs') {
+    const generatePathCandidates = buildPathCandidates({
+      primary: process.env.ELEVENLABS_GENERATE_PATH,
+      backups: process.env.ELEVENLABS_GENERATE_PATH_BACKUPS,
+      defaults: []
+    });
+    const statusPathCandidates = buildPathCandidates({
+      primary: process.env.ELEVENLABS_STATUS_PATH,
+      backups: process.env.ELEVENLABS_STATUS_PATH_BACKUPS,
+      defaults: []
+    });
+
     return {
       normalized,
       apiKey: process.env.ELEVENLABS_API_KEY,
-      baseUrl: (process.env.ELEVENLABS_BASE_URL || '').replace(/\/$/, ''),
-      generatePath: process.env.ELEVENLABS_GENERATE_PATH || '',
-      statusPathTemplate: process.env.ELEVENLABS_STATUS_PATH || ''
+      baseUrl: (process.env.ELEVENLABS_BASE_URL || 'https://api.elevenlabs.io').replace(/\/$/, ''),
+      generatePathCandidates,
+      statusPathCandidates,
+      generatePath: generatePathCandidates[0] || '',
+      statusPathTemplate: statusPathCandidates[0] || '',
+      statusJobIdQueryKey: process.env.ELEVENLABS_STATUS_JOBID_QUERY_KEY || 'jobId'
     };
   }
+
+  const defaultGeneratePathCandidates = buildPathCandidates({
+    primary: process.env.UDIOPROAPI_SUNO_GENERATE_PATH || process.env.SUNO_GENERATE_PATH,
+    backups: process.env.SUNO_GENERATE_PATH_BACKUPS,
+    defaults: [process.env.UDIOPROAPI_GENERATE_PATH || '/v2/generate']
+  });
+  const defaultStatusPathCandidates = buildPathCandidates({
+    primary: process.env.UDIOPROAPI_STATUS_PATH || process.env.SUNO_STATUS_PATH,
+    backups: process.env.SUNO_STATUS_PATH_BACKUPS,
+    defaults: ['/v2/jobs/{jobId}']
+  });
 
   return {
     normalized,
     apiKey: process.env.UDIOPROAPI_API_KEY || process.env.SUNO_API_KEY,
     baseUrl: (process.env.UDIOPROAPI_BASE_URL || process.env.SUNO_BASE_URL || '').replace(/\/$/, ''),
-    generatePath: process.env.UDIOPROAPI_SUNO_GENERATE_PATH || process.env.SUNO_GENERATE_PATH || process.env.UDIOPROAPI_GENERATE_PATH || '/v2/generate',
-    statusPathTemplate: process.env.UDIOPROAPI_STATUS_PATH || process.env.SUNO_STATUS_PATH || '/v2/jobs/{jobId}',
+    generatePathCandidates: defaultGeneratePathCandidates,
+    statusPathCandidates: defaultStatusPathCandidates,
+    generatePath: defaultGeneratePathCandidates[0] || '',
+    statusPathTemplate: defaultStatusPathCandidates[0] || '',
+    statusJobIdQueryKey: process.env.SUNO_STATUS_JOBID_QUERY_KEY || 'jobId',
     model: process.env.SUNO_MODEL || 'suno'
   };
 }
 
-function buildHeaders(apiKey) {
+function applyPathTokens(pathTemplate, tokens = {}) {
+  return String(pathTemplate || '').replace(/\{([^}]+)\}/g, (match, tokenName) => {
+    const key = String(tokenName || '').trim();
+    if (!(key in tokens)) return match;
+    const value = tokens[key];
+    if (value === undefined || value === null || value === '') return match;
+    return encodeURIComponent(String(value));
+  });
+}
+
+function buildStatusPath(pathTemplate, jobId, queryKey = 'jobId') {
+  const withStandardToken = applyPathTokens(pathTemplate, { jobId });
+  const withAltToken = withStandardToken.replace(':jobId', encodeURIComponent(jobId));
+
+  if (withAltToken.includes(encodeURIComponent(jobId))) {
+    return withAltToken;
+  }
+
+  const separator = withAltToken.includes('?') ? '&' : '?';
+  return `${withAltToken}${separator}${encodeURIComponent(queryKey)}=${encodeURIComponent(jobId)}`;
+}
+
+async function fetchWithFallbackPaths({ method, baseUrl, pathCandidates, headers, body, pathBuilder }) {
+  let lastResponse = null;
+  let lastError = null;
+
+  for (const candidate of pathCandidates) {
+    const resolvedPath = typeof pathBuilder === 'function' ? pathBuilder(candidate) : candidate;
+    const upstreamUrl = `${baseUrl}${resolvedPath}`;
+
+    try {
+      const upstreamRes = await fetch(upstreamUrl, {
+        method,
+        headers,
+        ...(body !== undefined ? { body } : {})
+      });
+
+      lastResponse = { upstreamRes, upstreamUrl, resolvedPath };
+
+      // Continue only when endpoint is missing and we have backups to try.
+      if (upstreamRes.status === 404) {
+        continue;
+      }
+
+      return { upstreamRes, upstreamUrl, resolvedPath };
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  if (lastResponse) {
+    return lastResponse;
+  }
+
+  throw lastError || new Error('No upstream path candidates configured.');
+}
+
+function buildHeaders(apiKey, provider = '') {
+  const normalizedProvider = String(provider || '').toLowerCase();
+
+  if (normalizedProvider === 'elevenlabs') {
+    return {
+      'Content-Type': 'application/json',
+      'xi-api-key': apiKey
+    };
+  }
+
   return {
     'Content-Type': 'application/json',
     Authorization: `Bearer ${apiKey}`,
     'x-api-key': apiKey
   };
+}
+
+function resolveElevenLabsVoiceId(payload = {}) {
+  const envVoice1 = String(process.env.ELEVENLABS_VOICE_ID_1 || '').trim();
+  const envVoice2 = String(process.env.ELEVENLABS_VOICE_ID_2 || '').trim();
+  const defaultVoice = String(process.env.ELEVENLABS_VOICE_ID || envVoice1 || envVoice2 || '').trim();
+  const requestedVoice = payload.voiceId ?? payload.voice_id ?? payload.voiceSlot ?? payload.voice_slot;
+
+  if (requestedVoice === 1 || requestedVoice === '1' || requestedVoice === 'voice1' || requestedVoice === 'VOICE_1') {
+    return envVoice1 || defaultVoice;
+  }
+
+  if (requestedVoice === 2 || requestedVoice === '2' || requestedVoice === 'voice2' || requestedVoice === 'VOICE_2') {
+    return envVoice2 || defaultVoice;
+  }
+
+  if (typeof requestedVoice === 'string' && requestedVoice.trim()) {
+    return requestedVoice.trim();
+  }
+
+  return defaultVoice;
+}
+
+function isDryRunEnabled() {
+  const value = String(process.env.PROVIDER_DRY_RUN || '').trim().toLowerCase();
+  return value === '1' || value === 'true' || value === 'yes';
 }
 
 function sanitizeTableName(tableName) {
@@ -522,9 +675,10 @@ async function upsertRequestRecord({
 
 app.post(['/api/provider/generate', '/api/apiframe/generate'], async (req, res) => {
   try {
+    const defaultGenerator = process.env.PREFERRED_PROVIDER || 'mureka';
     const {
       prompt,
-      generator = 'Suno',
+      generator = defaultGenerator,
       payload = {},
       compare = null,
       requestId: providedRequestId
@@ -540,7 +694,9 @@ app.post(['/api/provider/generate', '/api/apiframe/generate'], async (req, res) 
       return;
     }
 
-    if (!cfg.baseUrl || !cfg.generatePath) {
+    const generatePathCandidates = Array.isArray(cfg.generatePathCandidates) ? cfg.generatePathCandidates : [cfg.generatePath];
+
+    if (!cfg.baseUrl || generatePathCandidates.length === 0) {
       res.status(400).json({ error: `Missing base URL or generate path for generator: ${generator}` });
       return;
     }
@@ -550,17 +706,75 @@ app.post(['/api/provider/generate', '/api/apiframe/generate'], async (req, res) 
       return;
     }
 
-    const upstreamUrl = `${cfg.baseUrl}${cfg.generatePath}`;
-    const upstreamBody = {
-      ...payload,
-      model: payload.model || cfg.model,
-      prompt
+    if (isDryRunEnabled()) {
+      const providerJobId = `dryrun-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
+      const data = {
+        dryRun: true,
+        accepted: true,
+        status: 'queued',
+        jobId: providerJobId,
+        message: 'Dry-run mode enabled. No upstream provider call was made.',
+        echoed: {
+          generator: String(generator || '').toLowerCase(),
+          prompt,
+          payload
+        }
+      };
+
+      const normalized = buildNormalizedMetadata({
+        requestId,
+        generator,
+        providerJobId,
+        payload: data
+      });
+
+      await upsertRequestRecord({
+        requestId,
+        generator,
+        providerJobId,
+        compareContext: compare,
+        prompt,
+        payload,
+        upstreamStatus: 202,
+        responseBody: data
+      });
+
+      res.status(202).json({
+        ...data,
+        _pnf: {
+          ...normalized,
+          ...(compare ? { hasCompareContext: true } : {}),
+          dryRun: true,
+          http: {
+            status: 202,
+            label: statusLabel(202)
+          }
+        }
+      });
+      return;
+    }
+
+    const isElevenLabs = String(cfg.normalized || generator || '').toLowerCase() === 'elevenlabs';
+    const templateTokens = {
+      voiceId: isElevenLabs
+        ? resolveElevenLabsVoiceId(payload)
+        : (payload.voiceId || payload.voice_id || process.env.ELEVENLABS_VOICE_ID || '')
     };
 
-    const upstreamRes = await fetch(upstreamUrl, {
+    const upstreamBody = {
+      ...payload,
+      ...(payload.model || cfg.model ? { model: payload.model || cfg.model } : {}),
+      prompt,
+      ...(isElevenLabs ? { text: payload.text || prompt } : {})
+    };
+
+    const { upstreamRes } = await fetchWithFallbackPaths({
       method: 'POST',
-      headers: buildHeaders(cfg.apiKey),
-      body: JSON.stringify(upstreamBody)
+      baseUrl: cfg.baseUrl,
+      pathCandidates: generatePathCandidates,
+      headers: buildHeaders(cfg.apiKey, cfg.normalized),
+      body: JSON.stringify(upstreamBody),
+      pathBuilder: (pathTemplate) => applyPathTokens(pathTemplate, templateTokens)
     });
 
     const text = await upstreamRes.text();
@@ -604,9 +818,58 @@ app.post(['/api/provider/generate', '/api/apiframe/generate'], async (req, res) 
 
 app.get(['/api/provider/status/:jobId', '/api/apiframe/status/:jobId'], async (req, res) => {
   try {
-    const { generator = 'Suno' } = req.query || {};
+    const defaultGenerator = process.env.PREFERRED_PROVIDER || 'mureka';
+    const { generator = defaultGenerator } = req.query || {};
     const { jobId } = req.params;
     const cfg = resolveProviderConfig(generator);
+
+    if (isDryRunEnabled()) {
+      if (!jobId) {
+        res.status(400).json({ error: 'jobId is required.' });
+        return;
+      }
+
+      const requestId = typeof req.query.requestId === 'string' ? req.query.requestId.trim() : '';
+      const data = {
+        dryRun: true,
+        status: 'completed',
+        jobId,
+        message: 'Dry-run mode enabled. No upstream provider polling was performed.'
+      };
+
+      const normalized = buildNormalizedMetadata({
+        requestId,
+        generator,
+        providerJobId: jobId,
+        payload: data
+      });
+
+      if (requestId) {
+        await upsertRequestRecord({
+          requestId,
+          generator,
+          providerJobId: jobId,
+          prompt: undefined,
+          payload: undefined,
+          compareContext: undefined,
+          upstreamStatus: 200,
+          responseBody: data
+        });
+      }
+
+      res.status(200).json({
+        ...data,
+        _pnf: {
+          ...normalized,
+          dryRun: true,
+          http: {
+            status: 200,
+            label: statusLabel(200)
+          }
+        }
+      });
+      return;
+    }
 
     if (!cfg.apiKey) {
       res.status(400).json({ error: `Missing API key for generator: ${generator}` });
@@ -618,16 +881,19 @@ app.get(['/api/provider/status/:jobId', '/api/apiframe/status/:jobId'], async (r
       return;
     }
 
-    if (!cfg.baseUrl || !cfg.statusPathTemplate) {
+    const statusPathCandidates = Array.isArray(cfg.statusPathCandidates) ? cfg.statusPathCandidates : [cfg.statusPathTemplate];
+
+    if (!cfg.baseUrl || statusPathCandidates.length === 0) {
       res.status(400).json({ error: `Missing base URL or status path for generator: ${generator}` });
       return;
     }
 
-    const statusPath = cfg.statusPathTemplate.replace('{jobId}', encodeURIComponent(jobId));
-    const upstreamUrl = `${cfg.baseUrl}${statusPath}`;
-    const upstreamRes = await fetch(upstreamUrl, {
+    const { upstreamRes } = await fetchWithFallbackPaths({
       method: 'GET',
-      headers: buildHeaders(cfg.apiKey)
+      baseUrl: cfg.baseUrl,
+      pathCandidates: statusPathCandidates,
+      headers: buildHeaders(cfg.apiKey, cfg.normalized),
+      pathBuilder: (statusTemplate) => buildStatusPath(statusTemplate, jobId, cfg.statusJobIdQueryKey)
     });
 
     const text = await upstreamRes.text();
@@ -691,19 +957,22 @@ app.get('/', (req, res) => {
 });
 
 app.get(['/api/provider/health', '/api/apiframe/health'], (req, res) => {
-  const { generator = 'Suno' } = req.query || {};
+  const defaultGenerator = process.env.PREFERRED_PROVIDER || 'mureka';
+  const { generator = defaultGenerator } = req.query || {};
   const cfg = resolveProviderConfig(generator);
+  const dryRun = isDryRunEnabled();
 
   const keyPresent = Boolean(cfg.apiKey && String(cfg.apiKey).trim());
   const baseUrlPresent = Boolean(cfg.baseUrl && String(cfg.baseUrl).trim());
   const generatePathPresent = Boolean(cfg.generatePath && String(cfg.generatePath).trim());
   const statusPathPresent = Boolean(cfg.statusPathTemplate && String(cfg.statusPathTemplate).trim());
 
-  const ready = keyPresent && baseUrlPresent && generatePathPresent && statusPathPresent;
+  const ready = dryRun || (keyPresent && baseUrlPresent && generatePathPresent && statusPathPresent);
 
   res.status(ready ? 200 : 503).json({
     ok: ready,
     generator: cfg.normalized,
+    dryRun,
     checks: {
       apiKey: keyPresent,
       baseUrl: baseUrlPresent,

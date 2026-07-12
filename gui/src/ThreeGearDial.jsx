@@ -12,7 +12,7 @@ function polarPoint(cx, cy, radius, degrees) {
   };
 }
 
-export default function ThreeGearDial({ value = 50, variant = "emotion", onChange, accentColor, hideValue }) {
+export default function ThreeGearDial({ value = 50, variant = "emotion", onChange, accentColor, hideValue, step = 1, fineStep = 0.1 }) {
   const gradientId = useId();
   const glowId = useId();
   const ringId = useId();
@@ -61,12 +61,18 @@ export default function ThreeGearDial({ value = 50, variant = "emotion", onChang
     return Math.max(0, Math.min(100, (angle / 360) * 100));
   }
 
+  function snapValue(rawValue, event) {
+    const activeStep = event?.shiftKey ? fineStep : step;
+    const snapped = Math.round(rawValue / activeStep) * activeStep;
+    return Math.max(0, Math.min(100, Number(snapped.toFixed(2))));
+  }
+
   function handlePointerDown(event) {
     if (!onChange) return;
     event.preventDefault();
     const svg = event.currentTarget;
     const angle = getAngleFromEvent(event, svg);
-    onChange(angleToDialValueFree(angle));
+    onChange(snapValue(angleToDialValueFree(angle), event));
     activePointerIdRef.current = event.pointerId;
     svg.setPointerCapture(event.pointerId);
   }
@@ -75,7 +81,7 @@ export default function ThreeGearDial({ value = 50, variant = "emotion", onChang
     if (!onChange) return;
     if (activePointerIdRef.current !== event.pointerId) return;
     const angle = getAngleFromEvent(event, event.currentTarget);
-    onChange(angleToDialValueFree(angle));
+    onChange(snapValue(angleToDialValueFree(angle), event));
   }
 
   function handlePointerUp(event) {
@@ -85,13 +91,14 @@ export default function ThreeGearDial({ value = 50, variant = "emotion", onChang
 
   function handleKeyDown(event) {
     if (!onChange) return;
+    const activeStep = event.shiftKey ? fineStep : step;
     if (event.key === "ArrowLeft" || event.key === "ArrowDown") {
       event.preventDefault();
-      onChange(Math.max(0, value - 1));
+      onChange(Math.max(0, Number((value - activeStep).toFixed(2))));
     }
     if (event.key === "ArrowRight" || event.key === "ArrowUp") {
       event.preventDefault();
-      onChange(Math.min(100, value + 1));
+      onChange(Math.min(100, Number((value + activeStep).toFixed(2))));
     }
     if (event.key === "Home") {
       event.preventDefault();

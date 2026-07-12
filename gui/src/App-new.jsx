@@ -25,13 +25,16 @@ function CornerDial({ value, onChange, color, label, style }) {
   // color: 'blue' | 'yellow' | 'orange'
   const accent = color === 'blue' ? '#4fdcff' : color === 'yellow' ? '#ffe066' : '#ffb347';
   return (
-    <div className="corner-dial" style={style}>
-      <ThreeGearDial
+    <div className="corner-dial" style={{ ...style, "--corner-accent": accent }}>
+      <MiniDial
+        className="corner-mini-dial"
         value={value}
         variant="vocal"
+        label={label}
+        step={0.5}
+        fineStep={0.1}
         onChange={onChange}
       />
-      <span className="corner-dial-label" style={{ color: accent }}>{label}</span>
     </div>
   );
 }
@@ -43,6 +46,31 @@ function angleToDialValue(degrees) {
 
 function clampPercent(value) {
   return Math.max(0, Math.min(100, Math.round(value)));
+}
+
+function clampLevel(value) {
+  return Math.max(0, Math.min(100, Number(value) || 0));
+}
+
+function trimToDialValue(trim, limit) {
+  if (!limit) return 50;
+  const normalized = ((Number(trim) || 0) + limit) / (limit * 2);
+  return clampPercent(normalized * 100);
+}
+
+function dialValueToTrim(value, limit) {
+  if (!limit) return 0;
+  const dial = Number(value) || 0;
+  const normalized = (dial / 100) * (limit * 2) - limit;
+  return Number(normalized.toFixed(1));
+}
+
+function applyWeightedTrim(value, trim, weight = 1) {
+  return Number(clampLevel((Number(value) || 0) + trim * weight).toFixed(2));
+}
+
+function removeWeightedTrim(value, trim, weight = 1) {
+  return Number(clampLevel((Number(value) || 0) - trim * weight).toFixed(2));
 }
 
 function rangeLabel(value, low, mid, high) {
@@ -202,10 +230,14 @@ function buildNotation(settings, context, fxControls) {
   const vocalTiming = clampPercent(settings.vocal.timing ?? 50);
   const vocalWarmth = clampPercent(settings.vocal.warmth ?? 50);
   const vocalRelease = clampPercent(settings.vocal.release ?? 50);
+  const emotionIntent = EMOTION_INTENT_BY_PRESET[context.emotionPreset] || "Balanced emotional contour.";
+  const vocalCadenceIntent = VOCAL_CADENCE_INTENT_BY_PRESET[context.vocalPreset] || "Balanced cadence profile.";
   return [
     `[PERFORMANCE]: BPM:${context.tempo} TSIG:${context.timeSignature}`,
     `EMOTION:${context.emotionPreset}`,
+    `EMOTION_INTENT:${emotionIntent}`,
     `VOCAL:${context.vocalPreset}`,
+    `VOCAL_CADENCE_INTENT:${vocalCadenceIntent}`,
     `VDEL:${vocalDelivery}`,
     `INT:${settings.emotion.intensity}`,
     `VULN:${settings.emotion.vulnerability}`,
@@ -257,11 +289,14 @@ function buildPrompt(settings, context, fxControls, userPrompt = "") {
   const deliveryText = rangeLabel(vocalDelivery, "gentle", "controlled", "driving");
   const textureText = rangeLabel(vocalTexture, "smooth", "textured", "raspy");
   const timingText = rangeLabel(vocalTiming, "tight", "centered", "laid-back");
+  const emotionIntent = EMOTION_INTENT_BY_PRESET[context.emotionPreset] || "balanced emotional contour";
+  const vocalCadenceIntent = VOCAL_CADENCE_INTENT_BY_PRESET[context.vocalPreset] || "balanced cadence profile";
   const trimmedUserPrompt = typeof userPrompt === "string" ? userPrompt.trim() : "";
 
   return [
     `Generate a ${context.emotionPreset.toLowerCase()} / ${context.vocalPreset.toLowerCase()} performance at ${context.tempo} BPM in ${context.timeSignature}.`,
     trimmedUserPrompt ? `User creative notes: ${trimmedUserPrompt}` : null,
+    `Intent focus: emotion should feel ${emotionIntent}; cadence should feel ${vocalCadenceIntent}.`,
     `Dial points: emotion intensity ${emotionIntensity}%, emotion vulnerability ${emotionVulnerability}%, emotion confidence ${emotionConfidence}%, emotion tension ${emotionTension}%, emotion warmth ${emotionWarmth}%, emotion release ${emotionRelease}%, vocal delivery ${vocalDelivery}%, vocal texture ${vocalTexture}%, vocal performance state ${vocalState}%, vocal breath ${vocalBreath}%, vocal rasp ${vocalRasp}%, vocal runs ${vocalRuns}%, vocal timing ${vocalTiming}%, vocal warmth ${vocalWarmth}%, vocal release ${vocalRelease}%.`,
     `Delivery should feel ${intensityText}, ${vulnerabilityText}, and ${confidenceText}.`,
     `Emotional contour should stay ${emotionWarmthText} with a ${emotionReleaseText} phrase release.`,
@@ -375,7 +410,7 @@ function audioDebug(...args) {
   }
 }
 
-function MiniDial({ value, label, variant = "emotion", onChange, step = 1 }) {
+function MiniDial({ value, label, variant = "emotion", onChange, step = 1, fineStep = 0.1, className = "" }) {
   const isVocal = variant === "vocal";
   const currentValue = value || 0;
   const activePointerIdRef = useRef(null);
@@ -394,7 +429,8 @@ function MiniDial({ value, label, variant = "emotion", onChange, step = 1 }) {
     const centerY = rect.top + rect.height / 2;
     const angle = (Math.atan2(event.clientY - centerY, event.clientX - centerX) * 180) / Math.PI + 90;
     const rawValue = angleToDialValue(angle);
-    const snappedValue = Math.round(rawValue / step) * step;
+    const activeStep = event.shiftKey ? fineStep : step;
+    const snappedValue = Math.round(rawValue / activeStep) * activeStep;
     onChange(Math.max(0, Math.min(100, Number(snappedValue.toFixed(2)))));
   };
 
@@ -415,14 +451,15 @@ function MiniDial({ value, label, variant = "emotion", onChange, step = 1 }) {
   };
 
   const handleKeyDown = (event) => {
+    const activeStep = event.shiftKey ? fineStep : step;
     if (event.key === "ArrowLeft" || event.key === "ArrowDown") {
       event.preventDefault();
-      onChange(Math.max(0, Number((currentValue - step).toFixed(2))));
+      onChange(Math.max(0, Number((currentValue - activeStep).toFixed(2))));
     }
 
     if (event.key === "ArrowRight" || event.key === "ArrowUp") {
       event.preventDefault();
-      onChange(Math.min(100, Number((currentValue + step).toFixed(2))));
+      onChange(Math.min(100, Number((currentValue + activeStep).toFixed(2))));
     }
 
     if (event.key === "Home") {
@@ -437,7 +474,7 @@ function MiniDial({ value, label, variant = "emotion", onChange, step = 1 }) {
   };
 
   return (
-    <div className="sub-dial">
+    <div className={`sub-dial ${className}`.trim()}>
       <svg
         viewBox="0 0 100 100"
         className="sub-dial-face"
@@ -507,6 +544,30 @@ function MiniDial({ value, label, variant = "emotion", onChange, step = 1 }) {
   );
 }
 
+function MicroTrimSlider({ label, value, min, max, step, onChange }) {
+  const displayValue = value > 0 ? `+${value.toFixed(1)}` : value.toFixed(1);
+
+  return (
+    <div className="micro-trim-control">
+      <div className="micro-trim-head">
+        <span>{label}</span>
+        <span>{displayValue}</span>
+      </div>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(event) => onChange(Number(event.target.value))}
+        className="micro-trim-slider"
+        aria-label={`${label} micro trim`}
+      />
+      <small>Weighted micro adjustment for this section only.</small>
+    </div>
+  );
+}
+
 const EMOTION_PARAMS = {
   intensity: { label: "Intensity", low: "Subdued", high: "Intense" },
   vulnerability: { label: "Vulnerability", low: "Guarded", high: "Exposed" },
@@ -541,6 +602,72 @@ const SUB_DIAL_PARAMS = {
     { key: "warmth", label: "WARMTH" },
     { key: "release", label: "RELEASE" }
   ]
+};
+
+const EMOTION_PRESET_OPTIONS = [
+  {
+    value: "LONGING",
+    label: "LONGING - SOFT / WARM",
+    emotion: { intensity: 68, vulnerability: 62, confidence: 44, tension: 38, warmth: 58, release: 64 }
+  },
+  {
+    value: "CONFIDENT",
+    label: "CONFIDENT - BOLD / FOCUSED",
+    emotion: { intensity: 76, vulnerability: 30, confidence: 83, tension: 42, warmth: 56, release: 48 }
+  },
+  {
+    value: "VULNERABLE",
+    label: "VULNERABLE - OPEN / TENDER",
+    emotion: { intensity: 62, vulnerability: 82, confidence: 36, tension: 40, warmth: 64, release: 68 }
+  },
+  {
+    value: "LOVE",
+    label: "LOVE - SOFT / SWEET",
+    emotion: { intensity: 72, vulnerability: 74, confidence: 67, tension: 26, warmth: 86, release: 74 }
+  },
+  {
+    value: "JOY",
+    label: "JOY - BRIGHT / UPLIFTED",
+    emotion: { intensity: 84, vulnerability: 52, confidence: 78, tension: 34, warmth: 82, release: 78 }
+  }
+];
+
+const VOCAL_DELIVERY_OPTIONS = [
+  {
+    value: "SOULFUL",
+    label: "SOULFUL - FLOWING CADENCE",
+    vocal: { delivery: 58, timing: 74, runs: 57, release: 67, breath: 65 }
+  },
+  {
+    value: "TECHNICAL",
+    label: "TECHNICAL - TIGHT CADENCE",
+    vocal: { delivery: 66, timing: 38, runs: 44, release: 42, breath: 40 }
+  },
+  {
+    value: "INTIMATE",
+    label: "INTIMATE - BREATHED CADENCE",
+    vocal: { delivery: 52, timing: 62, runs: 41, release: 71, breath: 76 }
+  },
+  {
+    value: "DRIVING",
+    label: "DRIVING - PULSE CADENCE (FAST)",
+    vocal: { delivery: 81, timing: 33, runs: 63, release: 47, breath: 49 }
+  }
+];
+
+const EMOTION_INTENT_BY_PRESET = {
+  LONGING: "soft, yearning, warm",
+  CONFIDENT: "steady, bold, focused",
+  VULNERABLE: "open, tender, exposed",
+  LOVE: "soft, sweet, warm",
+  JOY: "bright, uplifted, open"
+};
+
+const VOCAL_CADENCE_INTENT_BY_PRESET = {
+  SOULFUL: "flowing, smooth, mid-tempo",
+  TECHNICAL: "tight, precise, fast attack",
+  INTIMATE: "soft, airy, relaxed",
+  DRIVING: "bright, punchy, faster"
 };
 
 const INITIAL_SETTINGS = {
@@ -585,6 +712,42 @@ const EQ_BAND_OPTIONS = [
   { key: "eqMid", label: "Mid", range: "500Hz-2000Hz" },
   { key: "eqHigh", label: "Hi", range: "2000Hz-20000Hz" }
 ];
+
+const MICRO_TRIM_LIMITS = {
+  emotion: 5,
+  vocal: 8,
+  fx: 3
+};
+
+const MICRO_TRIM_WEIGHTS = {
+  emotion: {
+    intensity: 1,
+    vulnerability: 0.8,
+    confidence: 0.6,
+    tension: 0.9,
+    warmth: 0.75,
+    release: 0.7
+  },
+  vocal: {
+    delivery: 1,
+    texture: 0.9,
+    performanceState: 0.8,
+    breath: 0.85,
+    rasp: 0.65,
+    runs: 0.55,
+    timing: 0.75,
+    warmth: 0.7,
+    release: 0.7
+  },
+  fx: {
+    reverb: 1,
+    compression: 0.75,
+    delay: 0.8,
+    eqLow: 0.55,
+    eqMid: 0.65,
+    eqHigh: 0.55
+  }
+};
 
 const TEXTURE_PRESETS = [
   {
@@ -659,6 +822,9 @@ export default function App() {
   const [timeSignature, setTimeSignature] = useState("4/4");
   const [emotionPreset, setEmotionPreset] = useState("LONGING");
   const [vocalPreset, setVocalPreset] = useState("SOULFUL");
+  const [emotionMicroTrim, setEmotionMicroTrim] = useState(0);
+  const [vocalMicroTrim, setVocalMicroTrim] = useState(0);
+  const [fxMicroTrim, setFxMicroTrim] = useState(0);
   const [volume, setVolume] = useState(80);
   const [isPlaying, setIsPlaying] = useState(false);
   const [shuffleEnabled, setShuffleEnabled] = useState(false);
@@ -721,6 +887,28 @@ export default function App() {
   const [textureUrl, setTextureUrl] = useState(null);
   const [normalMapUrl, setNormalMapUrl] = useState(null);
   const currentSettings = settings;
+  const effectiveSettings = useMemo(() => ({
+    emotion: Object.fromEntries(
+      Object.entries(settings.emotion).map(([key, value]) => [
+        key,
+        applyWeightedTrim(value, emotionMicroTrim, MICRO_TRIM_WEIGHTS.emotion[key] ?? 1)
+      ])
+    ),
+    vocal: Object.fromEntries(
+      Object.entries(settings.vocal).map(([key, value]) => [
+        key,
+        applyWeightedTrim(value, vocalMicroTrim, MICRO_TRIM_WEIGHTS.vocal[key] ?? 1)
+      ])
+    )
+  }), [settings, emotionMicroTrim, vocalMicroTrim]);
+  const effectiveFxControls = useMemo(() => (
+    Object.fromEntries(
+      Object.entries(fxControls).map(([key, value]) => [
+        key,
+        applyWeightedTrim(value, fxMicroTrim, MICRO_TRIM_WEIGHTS.fx[key] ?? 1)
+      ])
+    )
+  ), [fxControls, fxMicroTrim]);
   const activeEqBandMeta = EQ_BAND_OPTIONS.find((band) => band.key === activeEqBand) || EQ_BAND_OPTIONS[0];
   const activeEqValue = fxControls[activeEqBandMeta.key] ?? 0;
 
@@ -739,33 +927,33 @@ export default function App() {
   };
 
   const syncedCoreDials = useMemo(() => {
-    const vocalDelivery = currentSettings.vocal.delivery ?? currentSettings.vocal.texture;
+    const vocalDelivery = effectiveSettings.vocal.delivery ?? effectiveSettings.vocal.texture;
     return {
       harmony: clampPercent(
-        currentSettings.emotion.intensity * 0.45 +
+        effectiveSettings.emotion.intensity * 0.45 +
         vocalDelivery * 0.35 +
-        currentSettings.vocal.warmth * 0.2
+        effectiveSettings.vocal.warmth * 0.2
       ),
       rhythm: clampPercent(
-        currentSettings.emotion.tension * 0.35 +
-        currentSettings.vocal.timing * 0.4 +
-        currentSettings.vocal.runs * 0.25
+        effectiveSettings.emotion.tension * 0.35 +
+        effectiveSettings.vocal.timing * 0.4 +
+        effectiveSettings.vocal.runs * 0.25
       ),
       dynamics: clampPercent(
-        currentSettings.emotion.intensity * 0.4 +
+        effectiveSettings.emotion.intensity * 0.4 +
         vocalDelivery * 0.35 +
-        currentSettings.vocal.rasp * 0.25
+        effectiveSettings.vocal.rasp * 0.25
       )
     };
   }, [
-    currentSettings.emotion.intensity,
-    currentSettings.emotion.tension,
-    currentSettings.vocal.delivery,
-    currentSettings.vocal.texture,
-    currentSettings.vocal.warmth,
-    currentSettings.vocal.timing,
-    currentSettings.vocal.runs,
-    currentSettings.vocal.rasp
+    effectiveSettings.emotion.intensity,
+    effectiveSettings.emotion.tension,
+    effectiveSettings.vocal.delivery,
+    effectiveSettings.vocal.texture,
+    effectiveSettings.vocal.warmth,
+    effectiveSettings.vocal.timing,
+    effectiveSettings.vocal.runs,
+    effectiveSettings.vocal.rasp
   ]);
 
   const activeCoreDials = coreSyncEnabled
@@ -1002,29 +1190,29 @@ export default function App() {
   };
 
   const analysisData = useMemo(() => ({
-    emotion: weightedParentScore(currentSettings.emotion.intensity, [
-      currentSettings.emotion.warmth,
-      currentSettings.emotion.tension,
-      currentSettings.emotion.release
+    emotion: weightedParentScore(effectiveSettings.emotion.intensity, [
+      effectiveSettings.emotion.warmth,
+      effectiveSettings.emotion.tension,
+      effectiveSettings.emotion.release
     ]),
-    vocal: weightedParentScore(currentSettings.vocal.delivery ?? currentSettings.vocal.texture, [
-      currentSettings.vocal.rasp,
-      currentSettings.vocal.warmth,
-      currentSettings.vocal.breath
+    vocal: weightedParentScore(effectiveSettings.vocal.delivery ?? effectiveSettings.vocal.texture, [
+      effectiveSettings.vocal.rasp,
+      effectiveSettings.vocal.warmth,
+      effectiveSettings.vocal.breath
     ]),
     harmony: clampPercent(activeCoreDials.harmony),
     rhythm: clampPercent(activeCoreDials.rhythm),
     dynamics: clampPercent(activeCoreDials.dynamics)
   }), [
-    currentSettings.emotion.intensity,
-    currentSettings.emotion.warmth,
-    currentSettings.emotion.tension,
-    currentSettings.emotion.release,
-    currentSettings.vocal.delivery,
-    currentSettings.vocal.texture,
-    currentSettings.vocal.rasp,
-    currentSettings.vocal.warmth,
-    currentSettings.vocal.breath,
+    effectiveSettings.emotion.intensity,
+    effectiveSettings.emotion.warmth,
+    effectiveSettings.emotion.tension,
+    effectiveSettings.emotion.release,
+    effectiveSettings.vocal.delivery,
+    effectiveSettings.vocal.texture,
+    effectiveSettings.vocal.rasp,
+    effectiveSettings.vocal.warmth,
+    effectiveSettings.vocal.breath,
     activeCoreDials.harmony,
     activeCoreDials.rhythm,
     activeCoreDials.dynamics
@@ -1104,8 +1292,8 @@ export default function App() {
   }, [volume]);
 
   useEffect(() => {
-    applyFxSettingsToChain(fxControls, currentSettings, activeCoreDials);
-  }, [fxControls, currentSettings, activeCoreDials]);
+    applyFxSettingsToChain(effectiveFxControls, effectiveSettings, activeCoreDials);
+  }, [effectiveFxControls, effectiveSettings, activeCoreDials]);
 
   // Drive the holographic globe from live audio FFT data while playing
   useEffect(() => {
@@ -1221,14 +1409,46 @@ export default function App() {
   const handleEmotionChange = (key, value) => {
     setSettings(prev => ({
       ...prev,
-      emotion: { ...prev.emotion, [key]: Number(value) }
+      emotion: {
+        ...prev.emotion,
+        [key]: Number(value)
+      }
+    }));
+  };
+
+  const handleEmotionPresetSelect = (presetValue) => {
+    setEmotionPreset(presetValue);
+    const preset = EMOTION_PRESET_OPTIONS.find((option) => option.value === presetValue);
+    if (!preset?.emotion) return;
+    setSettings((prev) => ({
+      ...prev,
+      emotion: {
+        ...prev.emotion,
+        ...preset.emotion
+      }
     }));
   };
 
   const handleVocalChange = (key, value) => {
     setSettings(prev => ({
       ...prev,
-      vocal: { ...prev.vocal, [key]: Number(value) }
+      vocal: {
+        ...prev.vocal,
+        [key]: Number(value)
+      }
+    }));
+  };
+
+  const handleVocalPresetSelect = (presetValue) => {
+    setVocalPreset(presetValue);
+    const preset = VOCAL_DELIVERY_OPTIONS.find((option) => option.value === presetValue);
+    if (!preset?.vocal) return;
+    setSettings((prev) => ({
+      ...prev,
+      vocal: {
+        ...prev.vocal,
+        ...preset.vocal
+      }
     }));
   };
 
@@ -1607,9 +1827,9 @@ export default function App() {
     vocalPreset
   };
 
-  const generatedPrompt = useMemo(() => buildPrompt(currentSettings, context, fxControls, originalPrompt), [currentSettings, tempo, timeSignature, emotionPreset, vocalPreset, fxControls, originalPrompt]);
-  const generatedNotation = useMemo(() => buildNotation(currentSettings, context, fxControls), [currentSettings, tempo, timeSignature, emotionPreset, vocalPreset, fxControls]);
-  const originalNotation = useMemo(() => buildNotation(originalSettings, context, fxControls), [originalSettings, tempo, timeSignature, emotionPreset, vocalPreset, fxControls]);
+  const generatedPrompt = useMemo(() => buildPrompt(effectiveSettings, context, effectiveFxControls, originalPrompt), [effectiveSettings, tempo, timeSignature, emotionPreset, vocalPreset, effectiveFxControls, originalPrompt]);
+  const generatedNotation = useMemo(() => buildNotation(effectiveSettings, context, effectiveFxControls), [effectiveSettings, tempo, timeSignature, emotionPreset, vocalPreset, effectiveFxControls]);
+  const originalNotation = useMemo(() => buildNotation(originalSettings, context, effectiveFxControls), [originalSettings, tempo, timeSignature, emotionPreset, vocalPreset, effectiveFxControls]);
   const notationWithLocalSettings = useMemo(() => {
     return [`GENERATOR:${generator.toUpperCase()}`, generatedNotation].join("\n");
   }, [generator, generatedNotation]);
@@ -1626,9 +1846,14 @@ export default function App() {
       vocalPreset,
       localPreviewOnly,
       activeVersion,
-      fxControls,
+      fxControls: effectiveFxControls,
       original: originalSettings,
-      current: currentSettings
+      current: currentSettings,
+      microTrims: {
+        emotion: emotionMicroTrim,
+        vocal: vocalMicroTrim,
+        fx: fxMicroTrim
+      }
     },
     beforeAudio,
     beforeAudioDataUrl,
@@ -1708,6 +1933,9 @@ export default function App() {
     });
     setVersionA(session.settings.original);
     setVersionB(session.settings.current);
+    setEmotionMicroTrim(Number(session.settings?.microTrims?.emotion ?? 0));
+    setVocalMicroTrim(Number(session.settings?.microTrims?.vocal ?? 0));
+    setFxMicroTrim(Number(session.settings?.microTrims?.fx ?? 0));
     setActiveVersion("B");
     setSavedState("SESSION LOADED");
   };
@@ -1765,7 +1993,7 @@ export default function App() {
         generator: "mureka",
         prompt: generatedPrompt,
         notation: generatedNotation,
-        effects: { ...fxControls },
+        effects: { ...effectiveFxControls },
         ...sourcePayload,
         metadata: {
           sessionTitle,
@@ -1843,14 +2071,14 @@ export default function App() {
           payload: {
             prompt: generatedPrompt,
             notation: generatedNotation,
-            effects: { ...fxControls },
+            effects: { ...effectiveFxControls },
             ...sourcePayload,
             metadata: {
               tempo,
               timeSignature,
               emotionPreset,
               vocalPreset,
-              fxControls: { ...fxControls }
+              fxControls: { ...effectiveFxControls }
             }
           }
         })
@@ -1960,17 +2188,19 @@ export default function App() {
   );
   const processingWidth = `${processingPercent}%`;
   const processingColor = sciFiBarColor(processingPercent);
+  const reformSpeedBase = 0.5 + (reformSpeed / 100) * 4.5;
+  const reformSpeedEffective = insideView ? Math.max(0.35, reformSpeedBase * 0.45) : reformSpeedBase;
   const bassDrive = Math.min(
     1,
-    (emotionDial * 0.35 + currentSettings.vocal.warmth * 0.4 + volume * 0.25) / 100
+    (effectiveSettings.emotion.intensity * 0.35 + effectiveSettings.vocal.warmth * 0.4 + volume * 0.25) / 100
   );
   const trebleDrive = Math.min(
     1,
-    (currentSettings.vocal.rasp * 0.5 + currentSettings.vocal.runs * 0.25 + currentSettings.vocal.timing * 0.25) / 100
+    (effectiveSettings.vocal.rasp * 0.5 + effectiveSettings.vocal.runs * 0.25 + effectiveSettings.vocal.timing * 0.25) / 100
   );
   const distortionDrive = Math.min(
     1,
-    (currentSettings.emotion.tension * 0.45 + currentSettings.vocal.rasp * 0.35 + currentSettings.vocal.texture * 0.2) / 100
+    (effectiveSettings.emotion.tension * 0.45 + effectiveSettings.vocal.rasp * 0.35 + effectiveSettings.vocal.texture * 0.2) / 100
   );
 
   return (
@@ -2251,7 +2481,7 @@ export default function App() {
                         audioIntensity={isPlaying ? globeAudio.intensity : undefined}
                         audioMix={0.68}
                         chaosSensitivity={chaosSensitivity / 100}
-                        reformSpeed={0.5 + (reformSpeed / 100) * 4.5}
+                        reformSpeed={reformSpeedEffective}
                         flareIntensity={flareIntensity / 100}
                         colorSpeed={(colorSpeed / 100) * 2.0}
                         insideView={insideView}
@@ -2308,7 +2538,7 @@ export default function App() {
                   <div className="globe-control-row">
                     <div className="globe-control-label">
                       <span>Reform Speed</span>
-                      <span>{Math.round((0.5 + (reformSpeed / 100) * 4.5) * 10) / 10}x</span>
+                      <span>{Math.round(reformSpeedEffective * 10) / 10}x{insideView ? " (inside)" : ""}</span>
                     </div>
                     <input
                       type="range"
@@ -2394,6 +2624,14 @@ export default function App() {
 
                 <h3>Effects Rack</h3>
                 <div className="controls-effects-grid">
+                  <MicroTrimSlider
+                    label="FX Polish"
+                    value={fxMicroTrim}
+                    min={-MICRO_TRIM_LIMITS.fx}
+                    max={MICRO_TRIM_LIMITS.fx}
+                    step={0.05}
+                    onChange={setFxMicroTrim}
+                  />
                   <div className="controls-effect-row controls-effect-row-eq">
                     <div className="controls-effect-label controls-effect-eq-meta">
                       <span>EQ ({activeEqBandMeta.label})</span>
@@ -2433,7 +2671,7 @@ export default function App() {
                   </div>
 
                   {FX_CONTROL_PARAMS.map((param) => {
-                    const value = fxControls[param.key] ?? 0;
+                    const value = effectiveFxControls[param.key] ?? 0;
                     return (
                       <div className="controls-effect-row" key={param.key}>
                         <span className="controls-effect-label">{param.label}</span>
@@ -2493,13 +2731,22 @@ export default function App() {
               <select
                 className="dropdown"
                 value={emotionPreset}
-                onChange={(e) => setEmotionPreset(e.target.value)}
+                onChange={(e) => handleEmotionPresetSelect(e.target.value)}
               >
-                <option value="LONGING">LONGING</option>
-                <option value="CONFIDENT">CONFIDENT</option>
-                <option value="VULNERABLE">VULNERABLE</option>
+                {EMOTION_PRESET_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
               </select>
             </div>
+
+            <MicroTrimSlider
+              label="Emotion Blend"
+              value={emotionMicroTrim}
+              min={-MICRO_TRIM_LIMITS.emotion}
+              max={MICRO_TRIM_LIMITS.emotion}
+              step={0.1}
+              onChange={setEmotionMicroTrim}
+            />
 
 
             {/* Sub-dials */}
@@ -2510,6 +2757,7 @@ export default function App() {
                   label={param.label}
                   value={currentSettings.emotion[param.key] || 0}
                   step={0.5}
+                  fineStep={0.1}
                   onChange={(nextValue) => handleEmotionChange(param.key, nextValue)}
                 />
               ))}
@@ -2526,11 +2774,18 @@ export default function App() {
               <span className="card-icon">♪</span>
             </div>
             
-            <div className="main-dial-wrapper align-bar">
+            <div className="main-dial-wrapper align-bar" style={{ position: "relative" }}>
               <ThreeGearDial
                 value={vocalDial}
                 variant="vocal"
                 onChange={(nextValue) => handleVocalChange("delivery", nextValue)}
+              />
+              <CornerDial
+                value={trimToDialValue(vocalMicroTrim, MICRO_TRIM_LIMITS.vocal)}
+                onChange={(nextValue) => setVocalMicroTrim(dialValueToTrim(nextValue, MICRO_TRIM_LIMITS.vocal))}
+                color="blue"
+                label="ARTIC."
+                style={{ position: "absolute", top: "12px", right: "10px" }}
               />
               <div className="dial-labels">
                 <span className="dial-label-left">SOFT</span>
@@ -2543,11 +2798,11 @@ export default function App() {
               <select
                 className="dropdown"
                 value={vocalPreset}
-                onChange={(e) => setVocalPreset(e.target.value)}
+                onChange={(e) => handleVocalPresetSelect(e.target.value)}
               >
-                <option value="SOULFUL">SOULFUL</option>
-                <option value="TECHNICAL">TECHNICAL</option>
-                <option value="INTIMATE">INTIMATE</option>
+                {VOCAL_DELIVERY_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
               </select>
             </div>
 
@@ -2561,6 +2816,7 @@ export default function App() {
                   variant="vocal"
                   value={currentSettings.vocal[param.key] || 0}
                   step={0.5}
+                  fineStep={0.1}
                   onChange={(nextValue) => handleVocalChange(param.key, nextValue)}
                 />
               ))}

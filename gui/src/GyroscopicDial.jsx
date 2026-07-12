@@ -202,7 +202,7 @@ function drawDial(ctx, size, value, color, gyroA, innerA, ringA) {
   ctx.restore();
 }
 
-export function GyroscopicDial({ value = 50, label = "", color = AMBER, size = 220, onChange }) {
+export function GyroscopicDial({ value = 50, label = "", color = AMBER, size = 220, onChange, step = 1, fineStep = 0.1 }) {
   const canvasRef = useRef(null);
   const stateRef  = useRef({ gyroA: 0, innerA: 0, ringA: 0, raf: null });
   const activePointerIdRef = useRef(null);
@@ -210,6 +210,12 @@ export function GyroscopicDial({ value = 50, label = "", color = AMBER, size = 2
   const angleToDialValueFree = useCallback((angle) => {
     return Math.max(0, Math.min(100, (angle / 360) * 100));
   }, []);
+
+  const snapValue = useCallback((rawValue, event) => {
+    const activeStep = event?.shiftKey ? fineStep : step;
+    const snapped = Math.round(rawValue / activeStep) * activeStep;
+    return Math.max(0, Math.min(100, Number(snapped.toFixed(2))));
+  }, [step, fineStep]);
 
   const updateFromPointer = useCallback((event) => {
     const canvas = event.currentTarget;
@@ -219,8 +225,8 @@ export function GyroscopicDial({ value = 50, label = "", color = AMBER, size = 2
     const centerY = rect.top + rect.height / 2;
     let angle = (Math.atan2(event.clientY - centerY, event.clientX - centerX) * 180) / Math.PI;
     angle = (angle + 450) % 360;
-    return angleToDialValueFree(angle);
-  }, [angleToDialValueFree]);
+    return snapValue(angleToDialValueFree(angle), event);
+  }, [angleToDialValueFree, snapValue]);
 
   const draw = useCallback(() => {
     const canvas = canvasRef.current;
@@ -262,13 +268,14 @@ export function GyroscopicDial({ value = 50, label = "", color = AMBER, size = 2
 
   const handleKeyDown = (event) => {
     if (!onChange) return;
+    const activeStep = event.shiftKey ? fineStep : step;
     if (event.key === "ArrowLeft" || event.key === "ArrowDown") {
       event.preventDefault();
-      onChange(Math.max(0, value - 1));
+      onChange(Math.max(0, Number((value - activeStep).toFixed(2))));
     }
     if (event.key === "ArrowRight" || event.key === "ArrowUp") {
       event.preventDefault();
-      onChange(Math.min(100, value + 1));
+      onChange(Math.min(100, Number((value + activeStep).toFixed(2))));
     }
     if (event.key === "Home") {
       event.preventDefault();

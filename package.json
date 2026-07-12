@@ -4,6 +4,7 @@
   "version": "1.0.0",
   "scripts": {
     "start": "node src/index.js",
+    "start:prod": "NODE_ENV=production node src/index.js",
     "dev": "nodemon src/index.js",
     "dev:gui": "cd gui && npm run dev",
     "build:gui": "cd gui && npm run build",
@@ -12,6 +13,12 @@
     "package:gui:v1.2": "node scripts/package-guis.mjs v1.2",
     "test:compat": "node ARLNS/compat_baseline_v1.test.js",
     "test:elevenlabs": "node scripts/test-elevenlabs.mjs",
+    "proof:mureka": "node scripts/proof-provider-run.mjs --generator mureka",
+    "proof:elevenlabs": "node scripts/proof-provider-run.mjs --generator elevenlabs",
+    "proof:stack": "npm run proof:mureka && npm run proof:elevenlabs",
+    "pm2:start": "pm2 start ecosystem.config.cjs --env production",
+    "pm2:restart": "pm2 restart ecosystem.config.cjs --env production",
+    "pm2:logs": "pm2 logs mact6399capstone",
     "preflight": "npm run test:compat && npm run build:gui && node -e \"require('./src/config/validate-startup').validateStartup()\""
   },
   "devDependencies": {

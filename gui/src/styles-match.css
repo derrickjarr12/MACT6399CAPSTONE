@@ -2,8 +2,8 @@
 
 /* Corner dials for vocal card */
 .corner-dial {
-  width: 56px;
-  height: 56px;
+  width: 72px;
+  height: 72px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -427,20 +427,28 @@ body::after {
   border-radius: 10px;
   border: 1px solid rgba(148, 186, 224, 0.42);
   background: rgba(7, 15, 28, 0.74);
-  box-shadow: 0 5px 10px rgba(0, 0, 0, 0.28);
+  box-shadow:
+    0 0 18px rgba(80, 203, 255, 0.18),
+    0 5px 10px rgba(0, 0, 0, 0.28);
   cursor: pointer;
   transition: border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
 }
 
 .orb-stage-thumb-btn:hover {
   border-color: rgba(112, 214, 255, 0.88);
-  box-shadow: 0 0 0 1px rgba(112, 214, 255, 0.34), 0 6px 14px rgba(0, 0, 0, 0.33);
+  box-shadow:
+    0 0 0 1px rgba(112, 214, 255, 0.34),
+    0 0 24px rgba(95, 219, 255, 0.28),
+    0 6px 14px rgba(0, 0, 0, 0.33);
   transform: translateY(-1px);
 }
 
 .orb-stage-thumb-btn.is-active {
   border-color: rgba(126, 238, 255, 0.95);
-  box-shadow: 0 0 0 1px rgba(126, 238, 255, 0.34), 0 0 16px rgba(67, 172, 255, 0.3);
+  box-shadow:
+    0 0 0 1px rgba(126, 238, 255, 0.34),
+    0 0 28px rgba(67, 172, 255, 0.38),
+    0 0 8px rgba(126, 238, 255, 0.24);
 }
 
 .orb-stage-thumb {
@@ -899,6 +907,8 @@ input[type="range"].glass-range::-moz-range-thumb {
 
 .card-dropdown {
   display: flex;
+  flex-direction: column;
+  align-items: center;
   justify-content: center;
   margin-top: 0.3rem;
 }
@@ -912,6 +922,35 @@ input[type="range"].glass-range::-moz-range-thumb {
   padding: 0.48rem 0.75rem;
   font-family: "Syncopate", sans-serif;
   font-size: 0.75rem;
+}
+
+.micro-trim-control {
+  margin-top: 0.85rem;
+  padding: 0.85rem 0.95rem 0.8rem;
+  border-top: 1px solid var(--line-soft);
+  border-left: 3px solid rgba(94, 223, 255, 0.34);
+  background: linear-gradient(180deg, rgba(6, 22, 35, 0.74), rgba(5, 16, 28, 0.52));
+  display: grid;
+  gap: 0.45rem;
+}
+
+.micro-trim-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--text-soft);
+  font-size: 0.74rem;
+  letter-spacing: 0.04em;
+}
+
+.micro-trim-slider {
+  width: 100%;
+}
+
+.micro-trim-control small {
+  color: var(--text-soft);
+  font-size: 0.66rem;
+  letter-spacing: 0.02em;
 }
 
 .sub-dials {
@@ -953,6 +992,25 @@ input[type="range"].glass-range::-moz-range-thumb {
 .sub-dial svg {
   width: 90px;
   height: 90px;
+}
+
+.vocal-card .corner-dial .sub-dial svg {
+  width: 72px;
+  height: 72px;
+}
+
+.corner-dial .corner-mini-dial {
+  gap: 0.08rem;
+}
+
+.corner-dial .corner-mini-dial label {
+  font-size: 0.52rem;
+  letter-spacing: 0.08em;
+  color: var(--corner-accent, var(--cyan-strong));
+}
+
+.corner-dial .corner-mini-dial .sub-level-value {
+  font-size: 8px;
 }
 
 .sub-dial-face {
@@ -1857,6 +1915,13 @@ input[type="range"].glass-range::-moz-range-thumb {
   display: grid;
   gap: 10px;
   margin-top: 6px;
+}
+
+.controls-effects-grid .micro-trim-control {
+  margin-top: 0;
+  padding: 0.9rem 1rem 0.85rem;
+  border-top: 1px solid var(--line-soft);
+  grid-column: 1 / -1;
 }
 
 .controls-effect-row {

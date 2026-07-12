@@ -78,4 +78,6 @@ jobs:
             git pull --ff-only origin main
             npm install
             npm run build:gui
-            pm2 restart mact6399capstone || pm2 start src/index.js --name mact6399capstone
+            pm2 restart ecosystem.config.cjs --env production || pm2 start ecosystem.config.cjs --env production
+            curl -fsS "http://127.0.0.1:3000/api/provider/health?generator=mureka" >/tmp/mureka-health.json
+            cat /tmp/mureka-health.json
