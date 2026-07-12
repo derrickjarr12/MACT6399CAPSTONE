@@ -27,11 +27,15 @@ jobs:
         with:
           node-version: 24
 
-      - name: Install dependencies
+      - name: Install backend dependencies
         run: npm install
 
       - name: Backend compatibility test
         run: npm run test:compat
+
+      - name: Install GUI dependencies
+        working-directory: gui
+        run: npm install
 
       - name: Build GUI
         run: npm run build:gui
