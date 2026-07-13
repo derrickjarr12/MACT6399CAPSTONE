@@ -55,7 +55,6 @@ jobs:
       matrix:
         gui-path:
           - gui
-          - PNF-AIMS/gui
 
     steps:
       - name: Checkout

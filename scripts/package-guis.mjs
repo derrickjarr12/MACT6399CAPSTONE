@@ -10,10 +10,6 @@ const rootDir = path.resolve(__dirname, "..");
 const releasesDir = path.join(rootDir, "releases");
 
 const targets = {
-  v1: {
-    label: "gui-v1",
-    sourceDir: path.join(rootDir, "PNF-AIMS", "gui")
-  },
   "v1.2": {
     label: "gui-v1.2",
     sourceDir: path.join(rootDir, "gui")
@@ -109,7 +105,7 @@ async function packageTarget(versionKey) {
 
 async function main() {
   const selected = process.argv[2];
-  const toBuild = selected ? [selected] : ["v1", "v1.2"];
+  const toBuild = selected ? [selected] : ["v1.2"];
 
   await mkdir(releasesDir, { recursive: true });
 

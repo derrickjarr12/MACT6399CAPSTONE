@@ -47,7 +47,6 @@ jobs:
 
           run_outdated "."
           run_outdated "gui"
-          run_outdated "PNF-AIMS/gui"
 
           echo "report_file=$REPORT_FILE" >> "$GITHUB_OUTPUT"
 
