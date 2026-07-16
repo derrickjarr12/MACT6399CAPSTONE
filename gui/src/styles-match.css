@@ -1524,9 +1524,9 @@ input[type="range"].glass-range::-moz-range-thumb {
   background: rgba(4, 19, 31, 0.78);
   color: var(--text-soft);
   font-family: "Syncopate", sans-serif;
-  font-size: 0.62rem;
+  font-size: 0.5rem;
   letter-spacing: 0.08em;
-  padding: 0.45rem 0.7rem;
+  padding: 0.28rem 0.48rem;
   cursor: pointer;
 }
 
@@ -2305,14 +2305,14 @@ select,
 
 /* Keep Generate action buttons compact even after global button overrides */
 .generate-view .generate-panel-shell .panel-actions {
-  gap: 8px;
+  gap: 4px;
   margin-top: 14px;
 }
 
 .generate-view .generate-panel-shell .panel-actions > button {
-  padding: 6px 10px;
-  font-size: 0.76rem;
-  line-height: 1.05;
+  padding: 3px 7px;
+  font-size: 0.62rem;
+  line-height: 1;
 }
 
 .card,
@@ -2420,7 +2420,35 @@ select,
 
 .generate-view .panel-actions {
   margin-top: 8px;
-  gap: 8px;
+  gap: 4px;
+  position: sticky;
+  bottom: 0;
+  z-index: 6;
+  padding: 5px 5px;
+  border-top: 1px solid rgba(143, 179, 255, 0.28);
+  background: linear-gradient(180deg, rgba(6, 12, 20, 0.05), rgba(6, 12, 20, 0.92));
+}
+
+.generate-view .panel-actions .local-preview-toggle {
+  gap: 6px;
+  padding: 5px 10px;
+  font-size: 0.74rem;
+}
+
+.generate-view .panel-actions button,
+.generate-view .panel-actions .local-preview-toggle {
+  opacity: 1;
+  visibility: visible;
+}
+
+.version-save {
+  flex-wrap: wrap;
+  row-gap: 0.4rem;
+  column-gap: 0.25rem;
+}
+
+.version-save .save-btn {
+  white-space: nowrap;
 }
 
 @media (max-width: 1200px) {

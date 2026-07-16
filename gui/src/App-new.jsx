@@ -2259,8 +2259,8 @@ export default function App() {
   const handleExportAfterAudio = async () => {
     const source = afterAudio.trim();
     if (!source) {
-      setSavedState("NO AFTER AUDIO");
-      setTransportStatus("LOAD AFTER AUDIO");
+      setSavedState("NO NEW AUDIO");
+      setTransportStatus("LOAD NEW AUDIO");
       return;
     }
 
@@ -2281,11 +2281,11 @@ export default function App() {
           requestedFormat || "wav"
         );
         downloadBlobFile(`${fileStem}.${extension}`, blob);
-        setSavedState(`AFTER AUDIO EXPORTED (${extension.toUpperCase()})`);
+        setSavedState(`NEW AUDIO EXPORTED (${extension.toUpperCase()})`);
         return;
       }
 
-      throw new Error("After audio source is not a downloadable URL.");
+      throw new Error("New audio source is not a downloadable URL.");
     } catch (_) {
       if (source.startsWith("http")) {
         const extension = inferAudioExtensionFromSource(source, "", requestedFormat || "wav");
@@ -2297,12 +2297,23 @@ export default function App() {
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
-        setSavedState(`AFTER AUDIO EXPORT STARTED (${extension.toUpperCase()})`);
+        setSavedState(`NEW AUDIO EXPORT STARTED (${extension.toUpperCase()})`);
         return;
       }
 
       setSavedState("AUDIO EXPORT FAILED");
       setTransportStatus("EXPORT FAILED");
+    }
+  };
+
+  const handleExport = async () => {
+    const hasNewAudio = Boolean(afterAudio.trim());
+    if (hasNewAudio) {
+      await handleExportAfterAudio();
+    }
+    handleExportSessionJson();
+    if (hasNewAudio) {
+      setSavedState("EXPORT COMPLETE");
     }
   };
 
@@ -2366,7 +2377,7 @@ export default function App() {
           <img className="nav-brand-logo" src={saionLogo} alt="SAION" />
         </button>
         <nav className="nav-tabs">
-          {["PERFORMANCE", "GENERATE", "VISUALIZE", "CONTROLS"].map(tab => (
+          {["PERFORMANCE", "CONTROLS", "GENERATE", "VISUALIZE"].map(tab => (
             <button
               key={tab}
               className={`nav-tab ${navTab === tab ? "is-active" : ""}`}
@@ -2569,13 +2580,11 @@ export default function App() {
                     checked={localPreviewOnly}
                     onChange={(e) => setLocalPreviewOnly(e.target.checked)}
                   />
-                  Local Preview Only (no upload/send)
+                  Local Only
                 </label>
                 <button onClick={handleGenerateAudio} disabled={isGenerating}>
                   {isGenerating ? "Generating..." : "Generate Audio"}
                 </button>
-                <button onClick={handleExportAfterAudio}>Export After Audio</button>
-                <button onClick={handleExportSessionJson}>Export Session JSON</button>
                 <button onClick={handleCopyPrompt}>Copy Prompt</button>
                 <button onClick={handleDownloadNotation}>Download Notation</button>
                 <button onClick={handleSaveSession}>Save Session</button>
@@ -3245,9 +3254,9 @@ export default function App() {
             </button>
             <button
               className="save-btn"
-              onClick={handleExportAfterAudio}
+              onClick={handleExport}
             >
-              Export After Audio
+              Export
             </button>
           </div>
           <div className="waveform-label">{`${transportStatus} · ${savedState}`}</div>
