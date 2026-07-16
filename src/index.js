@@ -6,6 +6,7 @@
 const express = require('express');
 const crypto = require('crypto');
 const fs = require('fs');
+const path = require('path');
 const mysql = require('mysql2/promise');
 
 const { tokenize } = require("./tokenizer_v1");
@@ -1057,6 +1058,16 @@ app.get('/api/mysql/health', async (req, res) => {
 
 validateStartup();
 ensureMySqlInit();
+
+// Serve built GUI from gui/dist if present
+const guiDist = path.join(__dirname, '..', 'gui', 'dist');
+if (fs.existsSync(guiDist)) {
+  app.use(express.static(guiDist));
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api/')) return next();
+    res.sendFile(path.join(guiDist, 'index.html'));
+  });
+}
 
 app.listen(PORT, () => {
   console.log(`Server running at http://localhost:${PORT}`);
