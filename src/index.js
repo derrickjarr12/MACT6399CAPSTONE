@@ -5,6 +5,7 @@
 // --- Module imports ---
 const express = require('express');
 const crypto = require('crypto');
+const fs = require('fs');
 const mysql = require('mysql2/promise');
 
 const { tokenize } = require("./tokenizer_v1");
@@ -255,20 +256,29 @@ function sanitizeTableName(tableName) {
   return /^[A-Za-z0-9_]+$/.test(tableName) ? tableName : 'pnf_request_jobs';
 }
 
+function getEnvValue(...keys) {
+  for (const key of keys) {
+    const value = process.env[key];
+    if (value) return value;
+  }
+  return '';
+}
+
 function getMySqlConfig() {
-  const host = process.env.MYSQL_HOST;
-  const user = process.env.MYSQL_USER;
-  const database = process.env.MYSQL_DATABASE;
+  const host = getEnvValue('MYSQL_HOST', 'DB_HOST');
+  const user = getEnvValue('MYSQL_USER', 'DB_USER');
+  const database = getEnvValue('MYSQL_DATABASE', 'DB_NAME');
 
   if (!host || !user || !database) {
     return null;
   }
 
-  mysqlTable = sanitizeTableName(process.env.MYSQL_TABLE || 'pnf_request_jobs');
+  mysqlTable = sanitizeTableName(getEnvValue('MYSQL_TABLE', 'DB_TABLE') || 'pnf_request_jobs');
 
-  const sslEnabled = String(process.env.MYSQL_SSL || '').toLowerCase() === 'true';
-  const sslRejectUnauthorized = String(process.env.MYSQL_SSL_REJECT_UNAUTHORIZED || 'true').toLowerCase() !== 'false';
-  const sslCaBase64 = process.env.MYSQL_SSL_CA_BASE64 || '';
+  const sslEnabled = String(getEnvValue('MYSQL_SSL', 'DB_SSL') || '').toLowerCase() === 'true';
+  const sslRejectUnauthorized = String(getEnvValue('MYSQL_SSL_REJECT_UNAUTHORIZED', 'DB_SSL_REJECT_UNAUTHORIZED') || 'true').toLowerCase() !== 'false';
+  const sslCaBase64 = getEnvValue('MYSQL_SSL_CA_BASE64', 'DB_SSL_CA_BASE64');
+  const sslCaPath = getEnvValue('MYSQL_SSL_CA_PATH', 'DB_SSL_CA_PATH');
 
   let ssl;
   if (sslEnabled) {
@@ -282,17 +292,23 @@ function getMySqlConfig() {
       } catch (_) {
         console.warn('Invalid MYSQL_SSL_CA_BASE64 value; continuing without custom CA.');
       }
+    } else if (sslCaPath) {
+      try {
+        ssl.ca = fs.readFileSync(sslCaPath, 'utf8');
+      } catch (error) {
+        console.warn(`Unable to read MySQL CA certificate at ${sslCaPath}: ${error.message}`);
+      }
     }
   }
 
   return {
     host,
-    port: Number(process.env.MYSQL_PORT || 3306),
+    port: Number(getEnvValue('MYSQL_PORT', 'DB_PORT') || 3306),
     user,
-    password: process.env.MYSQL_PASSWORD || '',
+    password: getEnvValue('MYSQL_PASSWORD', 'DB_PASSWORD') || '',
     database,
     waitForConnections: true,
-    connectionLimit: Number(process.env.MYSQL_CONNECTION_LIMIT || 10),
+    connectionLimit: Number(getEnvValue('MYSQL_CONNECTION_LIMIT', 'DB_CONNECTION_LIMIT') || 10),
     queueLimit: 0,
     ...(ssl ? { ssl } : {})
   };

@@ -79,6 +79,13 @@ function rangeLabel(value, low, mid, high) {
   return high;
 }
 
+function enforceWordLimit(text, limit) {
+  if (!text || typeof text !== "string") return "";
+  const words = text.trim().split(/\s+/).filter(Boolean);
+  if (words.length <= limit) return text;
+  return words.slice(0, limit).join(" ");
+}
+
 function weightedParentScore(mainValue, modifierValues) {
   const safeMain = Number(mainValue) || 0;
   const safeModifiers = modifierValues.map((value) => Number(value) || 0);
@@ -310,6 +317,48 @@ function buildPrompt(settings, context, fxControls, userPrompt = "") {
 
 function downloadTextFile(filename, content, mimeType = "text/plain") {
   const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+function sanitizeFileStem(value, fallback = "song-idea") {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return normalized || fallback;
+}
+
+function inferAudioExtensionFromSource(source, mimeType = "", fallback = "wav") {
+  const normalizedMime = String(mimeType || "").toLowerCase();
+  if (normalizedMime.includes("mpeg")) return "mp3";
+  if (normalizedMime.includes("wav")) return "wav";
+  if (normalizedMime.includes("ogg")) return "ogg";
+  if (normalizedMime.includes("flac")) return "flac";
+  if (normalizedMime.includes("aac")) return "aac";
+  if (normalizedMime.includes("mp4")) return "m4a";
+
+  const sourceValue = String(source || "").toLowerCase();
+  const extensionMatch = sourceValue.match(/\.([a-z0-9]{2,5})(?:[?#].*)?$/i);
+  if (extensionMatch?.[1]) {
+    const extension = extensionMatch[1].toLowerCase();
+    if (extension === "mpeg") return "mp3";
+    if (["wav", "mp3", "ogg", "flac", "aac", "m4a", "aiff"].includes(extension)) {
+      return extension;
+    }
+  }
+
+  return fallback;
+}
+
+function downloadBlobFile(filename, blob) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
@@ -672,34 +721,36 @@ const VOCAL_CADENCE_INTENT_BY_PRESET = {
 
 const INITIAL_SETTINGS = {
   emotion: {
-    intensity: 68,
-    vulnerability: 45,
-    confidence: 55,
-    tension: 34,
-    warmth: 50,
-    release: 50
+    intensity: 0,
+    vulnerability: 0,
+    confidence: 0,
+    tension: 0,
+    warmth: 0,
+    release: 0
   },
   vocal: {
-    delivery: 58,
-    texture: 55,
-    performanceState: 62,
-    breath: 62,
-    rasp: 28,
-    runs: 45,
-    timing: 73,
-    warmth: 72,
-    release: 63
+    delivery: 0,
+    texture: 0,
+    performanceState: 0,
+    breath: 0,
+    rasp: 0,
+    runs: 0,
+    timing: 0,
+    warmth: 0,
+    release: 0
   }
 };
 
 const INITIAL_FX_CONTROLS = {
-  reverb: 42,
+  reverb: 0,
   eqLow: 50,
   eqMid: 50,
   eqHigh: 50,
-  compression: 38,
-  delay: 29
+  compression: 0,
+  delay: 0
 };
+
+const PROMPT_FINE_TUNE_WORD_LIMIT = 100;
 
 const FX_CONTROL_PARAMS = [
   { key: "reverb", label: "Reverb" },
@@ -830,7 +881,6 @@ export default function App() {
   const [shuffleEnabled, setShuffleEnabled] = useState(false);
   const [transportStatus, setTransportStatus] = useState("IDLE");
   const [waveformSeed, setWaveformSeed] = useState(1);
-  const [libraryOpen, setLibraryOpen] = useState(false);
   const [savedState, setSavedState] = useState("NOT SAVED");
   const [transportNotice, setTransportNotice] = useState(null);
   useEffect(() => {
@@ -840,9 +890,8 @@ export default function App() {
     }, 4200);
     return () => window.clearTimeout(timer);
   }, [transportNotice]);
-  const [originalPrompt, setOriginalPrompt] = useState(
-    "Original idea prompt: soulful modern R&B with intimate vocal dynamics and emotional phrasing."
-  );
+  const [promptFineTune, setPromptFineTune] = useState("");
+  const [hasPerformancePromptSignal, setHasPerformancePromptSignal] = useState(false);
   const [beforeAudio, setBeforeAudio] = useState("");
   const [afterAudio, setAfterAudio] = useState("");
   const [beforeAudioFileName, setBeforeAudioFileName] = useState("");
@@ -859,9 +908,9 @@ export default function App() {
   const [activeEqBand, setActiveEqBand] = useState("eqLow");
   const [coreSyncEnabled, setCoreSyncEnabled] = useState(false);
   const [coreDials, setCoreDials] = useState({
-    harmony: 74,
-    rhythm: 63,
-    dynamics: 71
+    harmony: 0,
+    rhythm: 0,
+    dynamics: 0
   });
   const audioElementRef = useRef(null);
   const audioContextRef = useRef(null);
@@ -920,6 +969,7 @@ export default function App() {
   }, [beforeAudio, afterAudio, beforeAudioFormat, afterAudioFormat]);
 
   const handleCoreDialChange = (key, value) => {
+    setHasPerformancePromptSignal(true);
     setCoreDials(prev => ({
       ...prev,
       [key]: Number(value)
@@ -1142,9 +1192,36 @@ export default function App() {
 
     const eqAverage = clampUnit((eqLow + eqMid + eqHigh) / 3);
     const eqBlend = clampUnit(eqAverage * 0.3 + vocalDrive * 0.38 + emotionLift * 0.24);
-    const compressionBlend = clampUnit(compression * 0.22 + emotionDrive * 0.3 + performanceState * 0.16 + delivery * 0.1 + (1 - vocalRelease) * 0.08);
-    const reverbBlend = clampUnit(reverb * 0.18 + vulnerability * 0.26 + emotionRelease * 0.16 + breath * 0.16 + (1 - tension) * 0.1);
-    const delayBlend = clampUnit(delay * 0.14 + rasp * 0.24 + runs * 0.2 + (1 - timing) * 0.12 + (1 - vocalRelease) * 0.08 + intensity * 0.08);
+    const performancePolishDrive = clampUnit(
+      intensity * 0.22 +
+      vulnerability * 0.16 +
+      confidence * 0.12 +
+      tension * 0.14 +
+      delivery * 0.14 +
+      performanceState * 0.12 +
+      breath * 0.1
+    );
+
+    const reverbPerformanceAssist = clampUnit(
+      (vulnerability * 0.45 + emotionRelease * 0.3 + breath * 0.25) * performancePolishDrive * 0.35
+    );
+    const compressionPerformanceAssist = clampUnit(
+      (emotionDrive * 0.45 + performanceState * 0.3 + delivery * 0.25) * performancePolishDrive * 0.32
+    );
+    const delayPerformanceAssist = clampUnit(
+      (rasp * 0.38 + runs * 0.34 + intensity * 0.28) * performancePolishDrive * 0.3
+    );
+
+    // Keep these FX fully off at slider=0; performance assist only shapes tone once user opts in.
+    const compressionBlend = clampUnit(
+      compression * (0.82 + compressionPerformanceAssist * 0.18)
+    );
+    const reverbBlend = clampUnit(
+      reverb * (0.82 + reverbPerformanceAssist * 0.18)
+    );
+    const delayBlend = clampUnit(
+      delay * (0.82 + delayPerformanceAssist * 0.18)
+    );
 
     const harmony = ((coreDials?.harmony ?? 50) / 100);
     const rhythm = ((coreDials?.rhythm ?? 50) / 100);
@@ -1153,6 +1230,9 @@ export default function App() {
     const harmonyTone = clampUnit(harmony * 0.6 + emotionWarmth * 0.2 + (1 - rasp) * 0.2);
     const rhythmTiming = clampUnit(rhythm * 0.5 + timing * 0.25 + (1 - tension) * 0.25);
     const dynamicsRange = clampUnit(dynamics * 0.6 + intensity * 0.18 + performanceState * 0.14 + (1 - vocalRelease) * 0.08);
+    const appEnhancementDrive = clampUnit(
+      performancePolishDrive * 0.34 + emotionLift * 0.26 + vocalDrive * 0.24 + harmonyTone * 0.16
+    );
 
     const eqBlendUpdated = clampUnit(eqBlend * 0.65 + harmonyTone * 0.35);
     const eqLowBlend = clampUnit(eqLow * 0.62 + vocalWarmthTone * 0.23 + (1 - rasp) * 0.15);
@@ -1160,33 +1240,35 @@ export default function App() {
     const eqHighBlend = clampUnit(eqHigh * 0.56 + vocalAir * 0.3 + (1 - compression) * 0.14);
     const reverbBlendUpdated = reverbBlend;
     const delayBlendUpdated = delayBlend;
-    const compressionBlendUpdated = clampUnit(compressionBlend * 0.6 + dynamicsRange * 0.4);
+    const compressionBlendUpdated = clampUnit(
+      compressionBlend * (0.84 + dynamicsRange * 0.16)
+    );
 
     const fxSendTarget = clampUnit(0.08 + harmony * 0.18 + rhythm * 0.22 + (1 - dynamics) * 0.18 + delayBlendUpdated * 0.14 + reverbBlendUpdated * 0.1);
 
     setParam(fxNodes.sendGain?.gain, fxSendTarget, 0.02);
-    setParam(fxNodes.emotionNode.gain, -10 + emotionLift * 20, 0.015);
+    setParam(fxNodes.emotionNode.gain, -12 + clampUnit(emotionLift * 0.82 + appEnhancementDrive * 0.18) * 22, 0.02);
     setParam(fxNodes.emotionNode.frequency, 560 + vulnerability * 820 + emotionRelease * 420, 0.015);
     setParam(fxNodes.emotionNode.Q, 0.7 + tension * 2.7, 0.015);
-    setParam(fxNodes.eqLowNode.gain, -14 + (eqLowBlend * 0.8 + (1 - harmony) * 0.2) * 24, 0.015);
-    setParam(fxNodes.eqMidNode.gain, -14 + (eqBlendUpdated * 0.45 + eqMidBlend * 0.35 + harmony * 0.2) * 24, 0.015);
-    setParam(fxNodes.eqHighNode.gain, -14 + (eqHighBlend * 0.7 + harmony * 0.3) * 24, 0.015);
-    setParam(fxNodes.warmthNode.gain, -7 + vocalWarmthTone * 13, 0.015);
-    setParam(fxNodes.airNode.gain, -5 + vocalAir * 16, 0.015);
+    setParam(fxNodes.eqLowNode.gain, -14 + clampUnit((eqLowBlend * 0.78 + (1 - harmony) * 0.18) + appEnhancementDrive * 0.04) * 24, 0.02);
+    setParam(fxNodes.eqMidNode.gain, -14 + clampUnit((eqBlendUpdated * 0.46 + eqMidBlend * 0.34 + harmony * 0.18) + appEnhancementDrive * 0.04) * 24, 0.02);
+    setParam(fxNodes.eqHighNode.gain, -14 + clampUnit((eqHighBlend * 0.68 + harmony * 0.28) + appEnhancementDrive * 0.04) * 24, 0.02);
+    setParam(fxNodes.warmthNode.gain, -8 + clampUnit(vocalWarmthTone * 0.9 + appEnhancementDrive * 0.1) * 14, 0.02);
+    setParam(fxNodes.airNode.gain, -6 + clampUnit(vocalAir * 0.9 + appEnhancementDrive * 0.1) * 15, 0.02);
     if (fxNodes.raspNode) {
-      fxNodes.raspNode.curve = createRaspCurve(vocalRaspDrive);
+      fxNodes.raspNode.curve = createRaspCurve(clampUnit(vocalRaspDrive * 0.9 + appEnhancementDrive * 0.1));
     }
-    setParam(fxNodes.compressor.threshold, -56 + (compressionBlendUpdated * 0.65 + (1 - dynamics) * 0.35) * 46, 0.025);
-    setParam(fxNodes.compressor.ratio, 1.4 + (compressionBlendUpdated * 0.5 + (1 - dynamics) * 0.5) * 18.6, 0.025);
+    setParam(fxNodes.compressor.threshold, -56 + compressionBlendUpdated * 46, 0.025);
+    setParam(fxNodes.compressor.ratio, 1 + compressionBlendUpdated * 19, 0.025);
     setParam(fxNodes.compressor.attack, 0.006 + (1 - rhythmTiming) * 0.05, 0.025);
     setParam(fxNodes.compressor.release, 0.05 + (1 - rhythmTiming) * 0.6, 0.025);
 
-    setParam(fxNodes.reverbWetGain.gain, 0.25 + reverbBlendUpdated * 0.75, 0.02);
+    setParam(fxNodes.reverbWetGain.gain, reverbBlendUpdated, 0.02);
     setParam(fxNodes.dryGain.gain, 1 - reverbBlendUpdated * 0.72, 0.02);
 
     setParam(fxNodes.delayNode.delayTime, 0.02 + (delayBlendUpdated * 0.55 + (1 - rhythm) * 0.45) * 0.78, 0.02);
-    setParam(fxNodes.delayFeedbackGain.gain, 0.04 + (delayBlendUpdated * 0.6 + (1 - rhythm) * 0.4) * 0.86, 0.02);
-    setParam(fxNodes.delayWetGain.gain, 0.22 + delayBlendUpdated * 0.78, 0.02);
+    setParam(fxNodes.delayFeedbackGain.gain, (delayBlendUpdated * 0.6 + (1 - rhythm) * 0.4) * 0.86, 0.02);
+    setParam(fxNodes.delayWetGain.gain, delayBlendUpdated, 0.02);
   };
 
   const analysisData = useMemo(() => ({
@@ -1407,6 +1489,7 @@ export default function App() {
   }, [isPlaying]);
 
   const handleEmotionChange = (key, value) => {
+    setHasPerformancePromptSignal(true);
     setSettings(prev => ({
       ...prev,
       emotion: {
@@ -1417,6 +1500,7 @@ export default function App() {
   };
 
   const handleEmotionPresetSelect = (presetValue) => {
+    setHasPerformancePromptSignal(true);
     setEmotionPreset(presetValue);
     const preset = EMOTION_PRESET_OPTIONS.find((option) => option.value === presetValue);
     if (!preset?.emotion) return;
@@ -1430,6 +1514,7 @@ export default function App() {
   };
 
   const handleVocalChange = (key, value) => {
+    setHasPerformancePromptSignal(true);
     setSettings(prev => ({
       ...prev,
       vocal: {
@@ -1440,6 +1525,7 @@ export default function App() {
   };
 
   const handleVocalPresetSelect = (presetValue) => {
+    setHasPerformancePromptSignal(true);
     setVocalPreset(presetValue);
     const preset = VOCAL_DELIVERY_OPTIONS.find((option) => option.value === presetValue);
     if (!preset?.vocal) return;
@@ -1801,15 +1887,6 @@ export default function App() {
       return;
     }
 
-    if (action === "library") {
-      setLibraryOpen(prev => {
-        const next = !prev;
-        setTransportStatus(next ? "LIBRARY OPEN" : "LIBRARY CLOSED");
-        return next;
-      });
-      return;
-    }
-
     if (action === "disconnect") {
       unloadAudio();
       setIsPlaying(false);
@@ -1827,7 +1904,8 @@ export default function App() {
     vocalPreset
   };
 
-  const generatedPrompt = useMemo(() => buildPrompt(effectiveSettings, context, effectiveFxControls, originalPrompt), [effectiveSettings, tempo, timeSignature, emotionPreset, vocalPreset, effectiveFxControls, originalPrompt]);
+  const generatedPromptRaw = useMemo(() => buildPrompt(effectiveSettings, context, effectiveFxControls, promptFineTune), [effectiveSettings, tempo, timeSignature, emotionPreset, vocalPreset, effectiveFxControls, promptFineTune]);
+  const generatedPrompt = hasPerformancePromptSignal ? generatedPromptRaw : "";
   const generatedNotation = useMemo(() => buildNotation(effectiveSettings, context, effectiveFxControls), [effectiveSettings, tempo, timeSignature, emotionPreset, vocalPreset, effectiveFxControls]);
   const originalNotation = useMemo(() => buildNotation(originalSettings, context, effectiveFxControls), [originalSettings, tempo, timeSignature, emotionPreset, vocalPreset, effectiveFxControls]);
   const notationWithLocalSettings = useMemo(() => {
@@ -1836,7 +1914,8 @@ export default function App() {
 
   const buildSessionPayload = () => ({
     title: sessionTitle || "Untitled Session",
-    originalPrompt,
+    promptFineTune,
+    originalPrompt: promptFineTune,
     generatedPrompt,
     notation: notationWithLocalSettings,
     settings: {
@@ -1886,7 +1965,8 @@ export default function App() {
     }
 
     setSessionTitle(session.title || "Song Idea 1");
-    setOriginalPrompt(session.originalPrompt || "");
+    setPromptFineTune(enforceWordLimit(session.promptFineTune || session.originalPrompt || "", PROMPT_FINE_TUNE_WORD_LIMIT));
+    setHasPerformancePromptSignal(true);
     const restoredBeforeAudio = (() => {
       if (session.beforeAudio && session.beforeAudio.startsWith("blob:") && session.beforeAudioDataUrl) {
         return session.beforeAudioDataUrl;
@@ -1947,6 +2027,10 @@ export default function App() {
     } catch (error) {
       setSavedState("COPY FAILED");
     }
+  };
+
+  const handlePromptFineTuneChange = (value) => {
+    setPromptFineTune(enforceWordLimit(value, PROMPT_FINE_TUNE_WORD_LIMIT));
   };
 
   const handleGenerateAudio = async () => {
@@ -2172,6 +2256,56 @@ export default function App() {
     setSavedState("SESSION JSON EXPORTED");
   };
 
+  const handleExportAfterAudio = async () => {
+    const source = afterAudio.trim();
+    if (!source) {
+      setSavedState("NO AFTER AUDIO");
+      setTransportStatus("LOAD AFTER AUDIO");
+      return;
+    }
+
+    const requestedFormat = (afterAudioFormat || "").trim().toLowerCase();
+    const fileStem = `${sanitizeFileStem(sessionTitle)}-after`;
+
+    try {
+      if (source.startsWith("http") || source.startsWith("blob:") || source.startsWith("data:audio/")) {
+        const response = await fetch(source);
+        if (!response.ok) {
+          throw new Error(`Failed to fetch audio for export (${response.status}).`);
+        }
+
+        const blob = await response.blob();
+        const extension = inferAudioExtensionFromSource(
+          source,
+          blob.type || response.headers.get("content-type") || "",
+          requestedFormat || "wav"
+        );
+        downloadBlobFile(`${fileStem}.${extension}`, blob);
+        setSavedState(`AFTER AUDIO EXPORTED (${extension.toUpperCase()})`);
+        return;
+      }
+
+      throw new Error("After audio source is not a downloadable URL.");
+    } catch (_) {
+      if (source.startsWith("http")) {
+        const extension = inferAudioExtensionFromSource(source, "", requestedFormat || "wav");
+        const link = document.createElement("a");
+        link.href = source;
+        link.download = `${fileStem}.${extension}`;
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        setSavedState(`AFTER AUDIO EXPORT STARTED (${extension.toUpperCase()})`);
+        return;
+      }
+
+      setSavedState("AUDIO EXPORT FAILED");
+      setTransportStatus("EXPORT FAILED");
+    }
+  };
+
   const emotionDial = currentSettings.emotion.intensity;
   const vocalDial = currentSettings.vocal.delivery ?? currentSettings.vocal.texture;
   const waveformHeights = useMemo(() => {
@@ -2336,8 +2470,12 @@ export default function App() {
                   </div>
 
                   <label>
-                    Original Prompt
-                    <textarea value={originalPrompt} onChange={(e) => setOriginalPrompt(e.target.value)} placeholder="Original idea prompt..." />
+                    Original Prompt (Performance-driven)
+                    <textarea
+                      value="Performance dials drive the base prompt. Use the Generated Prompt card to add fine-tune wording."
+                      readOnly
+                      placeholder="Performance settings control this prompt foundation."
+                    />
                   </label>
 
                   <div className="profile-summary">
@@ -2391,7 +2529,30 @@ export default function App() {
 
                   <label>
                     Generated Prompt
-                    <textarea value={generatedPrompt} readOnly placeholder="GUI-generated prompt..." />
+                    <textarea
+                      value={hasPerformancePromptSignal ? generatedPrompt : ""}
+                      readOnly
+                      placeholder="Move Performance dials to generate a prompt preview."
+                    />
+                    <small>
+                      {hasPerformancePromptSignal
+                        ? "Dial-driven prompt is active and updates live from your Performance settings."
+                        : "Waiting for Performance dial movement before prompt generation is enabled."}
+                    </small>
+                  </label>
+
+                  <label>
+                    Prompt Fine-Tune (Optional)
+                    <textarea
+                      value={hasPerformancePromptSignal ? promptFineTune : ""}
+                      onChange={(e) => handlePromptFineTuneChange(e.target.value)}
+                      placeholder="Optional add-on wording (max 100 words)."
+                    />
+                    <small>
+                      {hasPerformancePromptSignal
+                        ? "This text is appended to the dial-driven prompt when generating audio."
+                        : "Move Performance dials first, then add optional fine-tune wording."}
+                    </small>
                   </label>
 
                   <div className="profile-summary">
@@ -2413,7 +2574,8 @@ export default function App() {
                 <button onClick={handleGenerateAudio} disabled={isGenerating}>
                   {isGenerating ? "Generating..." : "Generate Audio"}
                 </button>
-                <button onClick={handleExportSessionJson}>Export Session</button>
+                <button onClick={handleExportAfterAudio}>Export After Audio</button>
+                <button onClick={handleExportSessionJson}>Export Session JSON</button>
                 <button onClick={handleCopyPrompt}>Copy Prompt</button>
                 <button onClick={handleDownloadNotation}>Download Notation</button>
                 <button onClick={handleSaveSession}>Save Session</button>
@@ -2630,7 +2792,10 @@ export default function App() {
                     min={-MICRO_TRIM_LIMITS.fx}
                     max={MICRO_TRIM_LIMITS.fx}
                     step={0.05}
-                    onChange={setFxMicroTrim}
+                    onChange={(nextValue) => {
+                      setHasPerformancePromptSignal(true);
+                      setFxMicroTrim(nextValue);
+                    }}
                   />
                   <div className="controls-effect-row controls-effect-row-eq">
                     <div className="controls-effect-label controls-effect-eq-meta">
@@ -2745,7 +2910,10 @@ export default function App() {
               min={-MICRO_TRIM_LIMITS.emotion}
               max={MICRO_TRIM_LIMITS.emotion}
               step={0.1}
-              onChange={setEmotionMicroTrim}
+              onChange={(nextValue) => {
+                setHasPerformancePromptSignal(true);
+                setEmotionMicroTrim(nextValue);
+              }}
             />
 
 
@@ -2782,7 +2950,10 @@ export default function App() {
               />
               <CornerDial
                 value={trimToDialValue(vocalMicroTrim, MICRO_TRIM_LIMITS.vocal)}
-                onChange={(nextValue) => setVocalMicroTrim(dialValueToTrim(nextValue, MICRO_TRIM_LIMITS.vocal))}
+                onChange={(nextValue) => {
+                  setHasPerformancePromptSignal(true);
+                  setVocalMicroTrim(dialValueToTrim(nextValue, MICRO_TRIM_LIMITS.vocal));
+                }}
                 color="blue"
                 label="ARTIC."
                 style={{ position: "absolute", top: "12px", right: "10px" }}
@@ -3024,13 +3195,6 @@ export default function App() {
               ⏭
             </button>
             <button
-              className={`control-btn folder ${libraryOpen ? "is-active" : ""}`}
-              onClick={() => triggerTransport("library")}
-              aria-label="Toggle library"
-            >
-              📁
-            </button>
-            <button
               className="control-btn disconnect"
               onClick={() => triggerTransport("disconnect")}
               aria-label="Disconnect transport"
@@ -3078,6 +3242,12 @@ export default function App() {
               onClick={() => handleSaveVersion("B")}
             >
               Save Version B
+            </button>
+            <button
+              className="save-btn"
+              onClick={handleExportAfterAudio}
+            >
+              Export After Audio
             </button>
           </div>
           <div className="waveform-label">{`${transportStatus} · ${savedState}`}</div>

@@ -51,20 +51,15 @@ Exit criteria:
 
 ## Week 3: GitHub Deployment Pipeline
 
-1. Configure host secrets in GitHub:
-   - DEPLOY_HOST
-   - DEPLOY_USER
-   - DEPLOY_SSH_KEY
-   - DEPLOY_PORT
-   - DEPLOY_PATH
-2. Run Deploy Readiness workflow from GitHub.
-3. Trigger manual deploy workflow.
+1. Run Deploy Readiness workflow from GitHub.
+2. Choose a host and configure its runtime environment variables outside the repo.
+3. Deploy the current `main` branch using the host's normal release flow.
 4. Validate deployed service endpoints.
 
 Exit criteria:
 
 1. Workflow passes readiness checks.
-2. Manual deploy step completes.
+2. Deployment completes on the selected host.
 3. Deployed environment reports healthy provider and DB checks.
 
 ## Week 4: Demo Hardening and Freeze

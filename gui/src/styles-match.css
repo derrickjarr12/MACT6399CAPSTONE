@@ -35,6 +35,7 @@
   --font-display: "Syncopate", "Exo 2", sans-serif;
   --shell-pad-x: 1.5rem;
   --shell-pad-y: 0.9rem;
+  --footer-playback-shift-x: -240px;
 }
 
 * {
@@ -94,6 +95,7 @@ body::after {
 
 .app-redesign {
   min-height: 100vh;
+  height: 100vh;
   display: grid;
   grid-template-rows: 82px 1fr 98px;
   position: relative;
@@ -334,10 +336,13 @@ body::after {
 .content-area {
   padding: 1.1rem var(--shell-pad-x);
   overflow: auto;
+  min-height: 0;
 }
 
 .cards-grid {
   width: min(1700px, 100%);
+  height: 100%;
+  min-height: 0;
   margin: 0 auto;
   display: grid;
   grid-template-columns: 1fr 1fr 1.2fr;
@@ -347,6 +352,8 @@ body::after {
 
 .orb-module-view {
   width: min(1700px, 100%);
+  height: 100%;
+  min-height: 0;
   margin: 0 auto;
 }
 
@@ -1433,7 +1440,8 @@ input[type="range"].glass-range::-moz-range-thumb {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  justify-self: center;
+  justify-self: start;
+  transform: translateX(var(--footer-playback-shift-x));
   position: relative;
   z-index: 2;
 }
@@ -2353,21 +2361,66 @@ select,
 .generate-view {
   display: flex;
   justify-content: center;
+  align-items: stretch;
   padding: 0;
-  min-height: 100%;
+  min-height: 0;
+  height: 100%;
   width: min(1700px, 100%);
   margin: 0 auto;
 }
 
 .generate-panel-shell {
   width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: auto;
   background: linear-gradient(135deg, rgba(7, 23, 37, 0.65) 0%, rgba(7, 23, 37, 0.45) 100%);
   border: 1px solid var(--line);
   border-radius: 12px;
-  padding: 0.9rem;
+  padding: 0.65rem;
   box-shadow: 
     0 0 30px rgba(77, 219, 255, 0.1),
     inset 0 0 20px rgba(77, 219, 255, 0.05);
+}
+
+.generate-view .panel-header {
+  margin-bottom: 10px;
+}
+
+.generate-view .compare-grid {
+  gap: 10px;
+}
+
+.generate-view .compare-card,
+.generate-view .profile-summary {
+  padding: 12px;
+  border-radius: 14px;
+}
+
+.generate-view label {
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.generate-view input,
+.generate-view textarea,
+.generate-view select {
+  padding: 8px;
+  border-radius: 10px;
+}
+
+.generate-view textarea {
+  min-height: 78px;
+}
+
+.generate-view .upload-row {
+  margin-top: 4px;
+  margin-bottom: 6px;
+}
+
+.generate-view .panel-actions {
+  margin-top: 8px;
+  gap: 8px;
 }
 
 @media (max-width: 1200px) {
@@ -2446,6 +2499,10 @@ select,
     width: 100%;
     justify-content: flex-start;
     justify-self: start;
+  }
+
+  .playback-controls {
+    transform: none;
   }
 
   .waveform {
