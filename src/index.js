@@ -969,10 +969,6 @@ app.get(['/api/provider/requests/:requestId', '/api/apiframe/requests/:requestId
   res.json(record);
 });
 
-app.get('/', (req, res) => {
-  res.send('Hello from your Express server!');
-});
-
 app.get(['/api/provider/health', '/api/apiframe/health'], (req, res) => {
   const defaultGenerator = process.env.PREFERRED_PROVIDER || 'mureka';
   const { generator = defaultGenerator } = req.query || {};
