@@ -939,6 +939,16 @@ export default function App() {
   const [visibleIndices, setVisibleIndices] = useState([]);
   const VISIBLE_PRESETS = 8;
 
+  const resolveAppAssetUrl = (url) => {
+    if (!url || typeof url !== "string") return url;
+    if (/^(https?:|data:|blob:)/i.test(url)) return url;
+    if (!url.startsWith("/")) return url;
+
+    const base = String(import.meta.env.BASE_URL || "/");
+    const normalizedBase = base === "/" ? "" : base.replace(/\/$/, "");
+    return `${normalizedBase}${url}`;
+  };
+
   // Fetch texture presets from API on mount (CDN with local fallback)
   useEffect(() => {
     const fetchPresets = async () => {
@@ -947,7 +957,11 @@ export default function App() {
         if (response.ok) {
           const data = await response.json();
           if (data.presets && Array.isArray(data.presets)) {
-            setTexturePresets(data.presets);
+            const normalizedPresets = data.presets.map((preset) => ({
+              ...preset,
+              thumbnailUrl: resolveAppAssetUrl(preset.thumbnailUrl)
+            }));
+            setTexturePresets(normalizedPresets);
           }
         }
       } catch (error) {
@@ -970,15 +984,9 @@ export default function App() {
     return indices.slice(0, Math.min(VISIBLE_PRESETS, presetArray.length));
   };
 
-  // Initialize and auto-rotate carousel with random selection every 5 seconds
+  // Initialize carousel with random selection on mount
   useEffect(() => {
     setVisibleIndices(generateRandomPresets(texturePresets));
-    
-    const interval = setInterval(() => {
-      setVisibleIndices(generateRandomPresets(texturePresets));
-    }, 5000);
-    
-    return () => clearInterval(interval);
   }, [texturePresets.length]);
 
   const currentSettings = settings;
@@ -2681,18 +2689,16 @@ export default function App() {
                   <button 
                     className="carousel-prev-btn"
                     onClick={handleCarouselPrev}
-                    title="Random shuffle textures"
                     style={{ padding: "8px 12px", cursor: "pointer", fontSize: "16px" }}
                   >
                     🔀 SHUFFLE
                   </button>
                   <div style={{ flex: 1, textAlign: "center", fontSize: "12px", color: "#888" }}>
-                    Showing 8 of {texturePresets.length} textures • Auto-rotates every 5s
+                    Showing 8 of {texturePresets.length} textures • Click SHUFFLE to rotate
                   </div>
                   <button 
                     className="carousel-next-btn"
                     onClick={handleCarouselNext}
-                    title="Random shuffle textures"
                     style={{ padding: "8px 12px", cursor: "pointer", fontSize: "16px" }}
                   >
                     🔀 SHUFFLE
