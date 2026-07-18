@@ -7,7 +7,7 @@
     "start:prod": "NODE_ENV=production node src/index.js",
     "dev": "nodemon src/index.js",
     "dev:gui": "cd gui && npm run dev",
-    "build:gui": "cd gui && npm ci && npm run build",
+    "build:gui": "cd gui && npm ci --include=dev && npm run build",
     "package:guis": "node scripts/package-guis.mjs",
     "package:gui:v1": "node scripts/package-guis.mjs v1",
     "package:gui:v1.2": "node scripts/package-guis.mjs v1.2",
