@@ -1,4 +1,21 @@
-# MACT6399 Capstone: Test-Only Execution Plan (4 Weeks)
+# MACT6399 Capstone: SAION
+
+**Live App:** https://saionapp-qsqlp.ondigitalocean.app/
+
+**Run Locally:**
+```bash
+npm start
+```
+Server runs at: http://localhost:3000
+
+**Build GUI:**
+```bash
+npm run build:gui
+```
+
+---
+
+## Test-Only Execution Plan (4 Weeks)
 
 ## Purpose
 This document defines a strict test-only plan for the next four weeks.

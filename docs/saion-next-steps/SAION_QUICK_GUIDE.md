@@ -1,5 +1,15 @@
 # SAION User Guide
 
+**Live App:** https://saionapp-qsqlp.ondigitalocean.app/
+
+**Run Locally:**
+```bash
+npm start
+```
+Server runs at: http://localhost:3000
+
+---
+
 Welcome to SAION. This guide walks you through the app the way a finished product guide should: simple steps, plain language, and no technical setup.
 
 ## 1. Start Your Session
