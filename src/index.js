@@ -1059,8 +1059,8 @@ ensureMySqlInit();
 const guiDist = path.join(__dirname, '..', 'gui', 'dist');
 if (fs.existsSync(guiDist)) {
   app.use(express.static(guiDist));
-  app.get('/:path*', (req, res, next) => {
-    if (req.path.startsWith('/api/')) return next();
+  // SPA catch-all: serve index.html for any non-API route that doesn't have a file
+  app.get(/^(?!\/api\/).*/, (req, res) => {
     res.sendFile(path.join(guiDist, 'index.html'));
   });
 }
