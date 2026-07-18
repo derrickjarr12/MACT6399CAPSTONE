@@ -936,6 +936,8 @@ export default function App() {
   const [textureUrl, setTextureUrl] = useState(null);
   const [normalMapUrl, setNormalMapUrl] = useState(null);
   const [texturePresets, setTexturePresets] = useState(TEXTURE_PRESETS);
+  const [visibleIndices, setVisibleIndices] = useState([]);
+  const VISIBLE_PRESETS = 8;
 
   // Fetch texture presets from API on mount (CDN with local fallback)
   useEffect(() => {
@@ -955,6 +957,29 @@ export default function App() {
     };
     fetchPresets();
   }, []);
+
+  // Generate random selection of presets
+  const generateRandomPresets = (presetArray) => {
+    if (presetArray.length === 0) return [];
+    const indices = Array.from({ length: presetArray.length }, (_, i) => i);
+    // Shuffle array using Fisher-Yates
+    for (let i = indices.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [indices[i], indices[j]] = [indices[j], indices[i]];
+    }
+    return indices.slice(0, Math.min(VISIBLE_PRESETS, presetArray.length));
+  };
+
+  // Initialize and auto-rotate carousel with random selection every 5 seconds
+  useEffect(() => {
+    setVisibleIndices(generateRandomPresets(texturePresets));
+    
+    const interval = setInterval(() => {
+      setVisibleIndices(generateRandomPresets(texturePresets));
+    }, 5000);
+    
+    return () => clearInterval(interval);
+  }, [texturePresets.length]);
 
   const currentSettings = settings;
   const effectiveSettings = useMemo(() => ({
@@ -1125,8 +1150,22 @@ export default function App() {
     }
   };
 
-  const stageLeftTexturePresets = texturePresets.slice(0, Math.ceil(texturePresets.length / 2));
-  const stageRightTexturePresets = texturePresets.slice(Math.ceil(texturePresets.length / 2));
+  // Get currently visible presets based on random indices
+  const getVisiblePresets = () => {
+    return visibleIndices.map(idx => texturePresets[idx] || null).filter(Boolean);
+  };
+
+  const visiblePresets = getVisiblePresets();
+  const stageLeftTexturePresets = visiblePresets.slice(0, 4);
+  const stageRightTexturePresets = visiblePresets.slice(4, 8);
+
+  const handleCarouselPrev = () => {
+    setVisibleIndices(generateRandomPresets(texturePresets));
+  };
+
+  const handleCarouselNext = () => {
+    setVisibleIndices(generateRandomPresets(texturePresets));
+  };
 
   const applyFxSettingsToChain = (nextFxControls, nextSettings = currentSettings, coreDials = activeCoreDials) => {
     const fxNodes = fxNodesRef.current;
@@ -2638,6 +2677,27 @@ export default function App() {
                 </div>
               </div>
               <div className="orb-module-stage">
+                <div className="orb-carousel-nav" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "12px", gap: "12px" }}>
+                  <button 
+                    className="carousel-prev-btn"
+                    onClick={handleCarouselPrev}
+                    title="Random shuffle textures"
+                    style={{ padding: "8px 12px", cursor: "pointer", fontSize: "16px" }}
+                  >
+                    🔀 SHUFFLE
+                  </button>
+                  <div style={{ flex: 1, textAlign: "center", fontSize: "12px", color: "#888" }}>
+                    Showing 8 of {texturePresets.length} textures • Auto-rotates every 5s
+                  </div>
+                  <button 
+                    className="carousel-next-btn"
+                    onClick={handleCarouselNext}
+                    title="Random shuffle textures"
+                    style={{ padding: "8px 12px", cursor: "pointer", fontSize: "16px" }}
+                  >
+                    🔀 SHUFFLE
+                  </button>
+                </div>
                 <div className="orb-stage-layout">
                   <div className="orb-stage-rail orb-stage-rail-left" role="list" aria-label="Left globe texture presets">
                     {stageLeftTexturePresets.map((preset) => {
