@@ -935,28 +935,9 @@ export default function App() {
   const [colorSpeed, setColorSpeed] = useState(14);
   const [textureUrl, setTextureUrl] = useState(null);
   const [normalMapUrl, setNormalMapUrl] = useState(null);
-  const [texturePresets, setTexturePresets] = useState(TEXTURE_PRESETS);
+  const texturePresets = TEXTURE_PRESETS;
   const [visibleIndices, setVisibleIndices] = useState([]);
   const VISIBLE_PRESETS = 8;
-
-  // Fetch texture presets from API on mount (CDN with local fallback)
-  useEffect(() => {
-    const fetchPresets = async () => {
-      try {
-        const response = await fetch('/api/assets/texture-presets');
-        if (response.ok) {
-          const data = await response.json();
-          if (data.presets && Array.isArray(data.presets)) {
-            setTexturePresets(data.presets);
-          }
-        }
-      } catch (error) {
-        console.warn('Failed to fetch texture presets from API, using local defaults:', error);
-        // Falls back to TEXTURE_PRESETS if API fails
-      }
-    };
-    fetchPresets();
-  }, []);
 
   // Generate random selection of presets
   const generateRandomPresets = (presetArray) => {
@@ -1158,14 +1139,6 @@ export default function App() {
   const visiblePresets = getVisiblePresets();
   const stageLeftTexturePresets = visiblePresets.slice(0, 4);
   const stageRightTexturePresets = visiblePresets.slice(4, 8);
-
-  const handleCarouselPrev = () => {
-    setVisibleIndices(generateRandomPresets(texturePresets));
-  };
-
-  const handleCarouselNext = () => {
-    setVisibleIndices(generateRandomPresets(texturePresets));
-  };
 
   const applyFxSettingsToChain = (nextFxControls, nextSettings = currentSettings, coreDials = activeCoreDials) => {
     const fxNodes = fxNodesRef.current;
@@ -2677,27 +2650,6 @@ export default function App() {
                 </div>
               </div>
               <div className="orb-module-stage">
-                <div className="orb-carousel-nav" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "12px", gap: "12px" }}>
-                  <button 
-                    className="carousel-prev-btn"
-                    onClick={handleCarouselPrev}
-                    title="Random shuffle textures"
-                    style={{ padding: "8px 12px", cursor: "pointer", fontSize: "16px" }}
-                  >
-                    🔀 SHUFFLE
-                  </button>
-                  <div style={{ flex: 1, textAlign: "center", fontSize: "12px", color: "#888" }}>
-                    Showing 8 of {texturePresets.length} textures • Auto-rotates every 5s
-                  </div>
-                  <button 
-                    className="carousel-next-btn"
-                    onClick={handleCarouselNext}
-                    title="Random shuffle textures"
-                    style={{ padding: "8px 12px", cursor: "pointer", fontSize: "16px" }}
-                  >
-                    🔀 SHUFFLE
-                  </button>
-                </div>
                 <div className="orb-stage-layout">
                   <div className="orb-stage-rail orb-stage-rail-left" role="list" aria-label="Left globe texture presets">
                     {stageLeftTexturePresets.map((preset) => {
