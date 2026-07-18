@@ -1052,6 +1052,107 @@ app.get('/api/mysql/health', async (req, res) => {
   }
 });
 
+// Asset texture presets endpoint - serves CDN URLs with local fallback
+app.get('/api/assets/texture-presets', (req, res) => {
+  const CDN_BASE = 'https://saion-assets.nyc3.cdn.digitaloceanspaces.com/saion-folder/';
+  const LOCAL_BASE = '/images/logos/';
+  const THUMB_BASE = '/images/logos/thumbs/';
+
+  const texturePresets = [
+    {
+      id: 'alternate',
+      label: 'Alternate',
+      thumbnailUrl: `${THUMB_BASE}Alternate.png`,
+      textureUrl: `${CDN_BASE}Alternate%20.png`,
+      textureUrlFallback: `${LOCAL_BASE}Alternate .png`
+    },
+    {
+      id: 'atlantist',
+      label: 'Atlantist',
+      thumbnailUrl: `${THUMB_BASE}Atlantist.png`,
+      textureUrl: `${CDN_BASE}Atlantist.png`,
+      textureUrlFallback: `${LOCAL_BASE}Atlantist.png`
+    },
+    {
+      id: 'bubble-lips',
+      label: 'Bubble Lips',
+      thumbnailUrl: `${THUMB_BASE}Bubble_LIps.png`,
+      textureUrl: `${CDN_BASE}Bubble_LIps.png`,
+      textureUrlFallback: `${LOCAL_BASE}Bubble_LIps.png`
+    },
+    {
+      id: 'chicken-good',
+      label: 'Chicken Good',
+      thumbnailUrl: `${THUMB_BASE}Chicken_Good.jpeg`,
+      textureUrl: `${CDN_BASE}Chicken_Good.jpeg`,
+      textureUrlFallback: `${LOCAL_BASE}Chicken_Good.jpeg`
+    },
+    {
+      id: 'red-kiss',
+      label: 'Red Kiss',
+      thumbnailUrl: `${THUMB_BASE}Red_Kiss.png`,
+      textureUrl: `${CDN_BASE}Red_Kiss.png`,
+      textureUrlFallback: `${LOCAL_BASE}Red_Kiss.png`
+    },
+    {
+      id: 'saion',
+      label: 'Saion',
+      thumbnailUrl: `${THUMB_BASE}SAION.png`,
+      textureUrl: `${CDN_BASE}SAION.png`,
+      textureUrlFallback: `${LOCAL_BASE}SAION.png`
+    },
+    {
+      id: 'saion-logo',
+      label: 'Saion Logo',
+      thumbnailUrl: `${THUMB_BASE}SAION_Logo.png`,
+      textureUrl: `${CDN_BASE}SAION%20LOGO.png`,
+      textureUrlFallback: `${LOCAL_BASE}SAION LOGO.png`
+    },
+    {
+      id: 'saion-logo-variant',
+      label: 'Saion Logo Variant',
+      thumbnailUrl: `${THUMB_BASE}SAION.png`,
+      textureUrl: `${CDN_BASE}SAION_Logo.png`,
+      textureUrlFallback: `${LOCAL_BASE}SAION_Logo.png`
+    },
+    {
+      id: 'shot-glass',
+      label: 'Shot Glass',
+      thumbnailUrl: `${THUMB_BASE}Shot_Glass.png`,
+      textureUrl: `${CDN_BASE}Shot_Glass.png`,
+      textureUrlFallback: `${LOCAL_BASE}Shot_Glass.png`
+    },
+    {
+      id: 'shots',
+      label: 'Shots',
+      thumbnailUrl: `${THUMB_BASE}Shots.jpeg`,
+      textureUrl: `${CDN_BASE}Shots.jpeg`,
+      textureUrlFallback: `${LOCAL_BASE}Shots.jpeg`
+    },
+    {
+      id: 'buttons',
+      label: 'Buttons',
+      thumbnailUrl: `${THUMB_BASE}buttons.png`,
+      textureUrl: `${CDN_BASE}buttons.png`,
+      textureUrlFallback: `${LOCAL_BASE}buttons.png`
+    },
+    {
+      id: 'zero-one',
+      label: 'Zero One',
+      thumbnailUrl: `${THUMB_BASE}0_1.jpeg`,
+      textureUrl: `${THUMB_BASE}0_1.jpeg`,
+      textureUrlFallback: `${LOCAL_BASE}0_1.jpeg`
+    }
+  ];
+
+  res.json({
+    status: 'success',
+    count: texturePresets.length,
+    cdnBase: CDN_BASE,
+    presets: texturePresets
+  });
+});
+
 validateStartup();
 ensureMySqlInit();
 

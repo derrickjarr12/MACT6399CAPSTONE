@@ -935,6 +935,27 @@ export default function App() {
   const [colorSpeed, setColorSpeed] = useState(14);
   const [textureUrl, setTextureUrl] = useState(null);
   const [normalMapUrl, setNormalMapUrl] = useState(null);
+  const [texturePresets, setTexturePresets] = useState(TEXTURE_PRESETS);
+
+  // Fetch texture presets from API on mount (CDN with local fallback)
+  useEffect(() => {
+    const fetchPresets = async () => {
+      try {
+        const response = await fetch('/api/assets/texture-presets');
+        if (response.ok) {
+          const data = await response.json();
+          if (data.presets && Array.isArray(data.presets)) {
+            setTexturePresets(data.presets);
+          }
+        }
+      } catch (error) {
+        console.warn('Failed to fetch texture presets from API, using local defaults:', error);
+        // Falls back to TEXTURE_PRESETS if API fails
+      }
+    };
+    fetchPresets();
+  }, []);
+
   const currentSettings = settings;
   const effectiveSettings = useMemo(() => ({
     emotion: Object.fromEntries(
@@ -1104,8 +1125,8 @@ export default function App() {
     }
   };
 
-  const stageLeftTexturePresets = TEXTURE_PRESETS.slice(0, 4);
-  const stageRightTexturePresets = TEXTURE_PRESETS.slice(4, 8);
+  const stageLeftTexturePresets = texturePresets.slice(0, Math.ceil(texturePresets.length / 2));
+  const stageRightTexturePresets = texturePresets.slice(Math.ceil(texturePresets.length / 2));
 
   const applyFxSettingsToChain = (nextFxControls, nextSettings = currentSettings, coreDials = activeCoreDials) => {
     const fxNodes = fxNodesRef.current;
