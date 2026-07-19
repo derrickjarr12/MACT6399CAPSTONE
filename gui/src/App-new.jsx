@@ -2075,7 +2075,11 @@ export default function App() {
       return;
     }
 
-    const apiBase = (import.meta.env.VITE_API_BASE_URL || "http://localhost:3000").replace(/\/$/, "");
+    const defaultApiBase =
+      typeof window !== "undefined" && window.location?.origin
+        ? window.location.origin
+        : "http://localhost:3000";
+    const apiBase = (import.meta.env.VITE_API_BASE_URL || defaultApiBase).replace(/\/$/, "");
 
     try {
       setIsGenerating(true);
