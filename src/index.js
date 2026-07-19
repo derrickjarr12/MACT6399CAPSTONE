@@ -29,7 +29,8 @@ const {
   getFfmpegFeatureConfig,
   probeFfmpegBinary,
   getFfmpegCapabilities,
-  preprocessSourceAudioPayload
+  preprocessSourceAudioPayload,
+  postprocessGeneratedAudioExport
 } = require('./media/ffmpeg');
 
 // --- Express server setup ---
@@ -37,9 +38,38 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 const requestStore = new Map();
+const mediaArtifactStore = new Map();
 let mysqlPool = null;
 let mysqlTable = 'pnf_request_jobs';
 let mysqlInitPromise = null;
+
+const MEDIA_ARTIFACT_TTL_MS = 60 * 60 * 1000;
+
+function cleanupExpiredMediaArtifacts() {
+  const now = Date.now();
+  for (const [artifactId, record] of mediaArtifactStore.entries()) {
+    if (!record || !record.expiresAt || record.expiresAt > now) continue;
+    mediaArtifactStore.delete(artifactId);
+    if (record.filePath) {
+      fs.promises.unlink(record.filePath).catch(() => {});
+    }
+  }
+}
+
+function registerMediaArtifact({ filePath, mimeType, extension, ttlMs = MEDIA_ARTIFACT_TTL_MS }) {
+  cleanupExpiredMediaArtifacts();
+  const artifactId = crypto.randomUUID();
+  const now = Date.now();
+  mediaArtifactStore.set(artifactId, {
+    filePath,
+    mimeType,
+    extension,
+    createdAt: now,
+    expiresAt: now + ttlMs
+  });
+
+  return artifactId;
+}
 
 app.use(express.json({ limit: '25mb' }));
 app.use((req, res, next) => {
@@ -848,9 +878,49 @@ app.post(['/api/provider/generate', '/api/apiframe/generate'], async (req, res) 
       providerJobId,
       payload: data
     });
+
+    let ffmpegExportMeta = null;
+    if (upstreamRes.ok && normalized.audioUrl) {
+      const exportResult = await postprocessGeneratedAudioExport(normalized.audioUrl);
+      ffmpegExportMeta = {
+        applied: exportResult.applied,
+        skipped: exportResult.skipped,
+        reason: exportResult.reason,
+        ...(exportResult.applied
+          ? {
+              sourceType: exportResult.sourceType,
+              sourceMimeType: exportResult.sourceMimeType,
+              outputFormat: exportResult.outputFormat,
+              outputMimeType: exportResult.outputMimeType,
+              outputSizeBytes: exportResult.outputSizeBytes
+            }
+          : {}),
+        ...(exportResult.error ? { error: exportResult.error } : {})
+      };
+
+      if (exportResult.applied && exportResult.outputPath) {
+        const artifactId = registerMediaArtifact({
+          filePath: exportResult.outputPath,
+          mimeType: exportResult.outputMimeType,
+          extension: exportResult.outputFormat
+        });
+
+        const artifactUrl = `/api/media/ffmpeg/artifacts/${artifactId}`;
+        data.postProcessedAudioUrl = artifactUrl;
+        data.postProcessedAudioFormat = exportResult.outputFormat;
+        ffmpegExportMeta.artifactId = artifactId;
+        ffmpegExportMeta.artifactUrl = artifactUrl;
+      }
+
+      if (exportResult.cleanupInputPath) {
+        fs.promises.unlink(exportResult.cleanupInputPath).catch(() => {});
+      }
+    }
+
     const normalizedWithFfmpeg = {
       ...normalized,
-      ffmpegIngest: ffmpegIngestMeta
+      ffmpegIngest: ffmpegIngestMeta,
+      ffmpegExport: ffmpegExportMeta
     };
 
     await upsertRequestRecord({
@@ -1118,6 +1188,36 @@ app.get('/api/media/ffmpeg/health', async (req, res) => {
       capabilities: getFfmpegCapabilities(),
       mode: 'phase1_health_only'
     });
+  }
+});
+
+app.get('/api/media/ffmpeg/artifacts/:artifactId', async (req, res) => {
+  const { artifactId } = req.params;
+  const record = mediaArtifactStore.get(artifactId);
+
+  if (!record) {
+    res.status(404).json({ error: 'artifact not found' });
+    return;
+  }
+
+  if (record.expiresAt <= Date.now()) {
+    mediaArtifactStore.delete(artifactId);
+    if (record.filePath) {
+      fs.promises.unlink(record.filePath).catch(() => {});
+    }
+    res.status(410).json({ error: 'artifact expired' });
+    return;
+  }
+
+  try {
+    const stats = await fs.promises.stat(record.filePath);
+    res.setHeader('Content-Type', record.mimeType || 'application/octet-stream');
+    res.setHeader('Content-Length', String(stats.size));
+    res.setHeader('Cache-Control', 'private, max-age=300');
+    res.sendFile(record.filePath);
+  } catch {
+    mediaArtifactStore.delete(artifactId);
+    res.status(404).json({ error: 'artifact file unavailable' });
   }
 });
 

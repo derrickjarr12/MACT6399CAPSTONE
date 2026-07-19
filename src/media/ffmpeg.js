@@ -23,18 +23,30 @@ function getFfmpegFeatureConfig() {
   const ingestChannelsRaw = Number(process.env.FFMPEG_INGEST_CHANNELS || 1);
   const ingestSampleRate = Number.isFinite(ingestSampleRateRaw) && ingestSampleRateRaw >= 8000 ? ingestSampleRateRaw : 44100;
   const ingestChannels = Number.isFinite(ingestChannelsRaw) && ingestChannelsRaw >= 1 && ingestChannelsRaw <= 2 ? ingestChannelsRaw : 1;
+  const exportEnabled = parseBoolean(process.env.FFMPEG_EXPORT_POSTPROCESS_ENABLED, false);
+  const exportFormatRaw = String(process.env.FFMPEG_EXPORT_FORMAT || 'mp3').trim().toLowerCase();
+  const exportFormat = ['mp3', 'wav', 'flac'].includes(exportFormatRaw) ? exportFormatRaw : 'mp3';
+  const exportBitrate = String(process.env.FFMPEG_EXPORT_BITRATE || '192k').trim() || '192k';
+  const maxInputMbRaw = Number(process.env.FFMPEG_MAX_INPUT_MB || 30);
+  const maxInputMb = Number.isFinite(maxInputMbRaw) && maxInputMbRaw > 1 ? maxInputMbRaw : 30;
 
   return {
     enabled,
     ffmpegBin,
     ffprobeBin,
     timeoutMs,
+    maxInputMb,
     ingest: {
       enabled: ingestEnabled,
       normalize: ingestNormalize,
       trimSilence: ingestTrimSilence,
       sampleRate: ingestSampleRate,
       channels: ingestChannels
+    },
+    export: {
+      enabled: exportEnabled,
+      format: exportFormat,
+      bitrate: exportBitrate
     }
   };
 }
@@ -167,6 +179,13 @@ function mimeToExtension(mimeType) {
   return 'bin';
 }
 
+function extensionToMime(extension) {
+  if (extension === 'mp3') return 'audio/mpeg';
+  if (extension === 'wav') return 'audio/wav';
+  if (extension === 'flac') return 'audio/flac';
+  return 'application/octet-stream';
+}
+
 function buildWavDataUri(buffer) {
   return `data:audio/wav;base64,${buffer.toString('base64')}`;
 }
@@ -278,6 +297,140 @@ async function preprocessSourceAudioPayload(payload = {}) {
   }
 }
 
+async function downloadAudioUrlToBuffer(sourceUrl, maxBytes, timeoutMs) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(sourceUrl, { signal: controller.signal });
+    if (!response.ok) {
+      return { ok: false, error: `download_failed_${response.status}` };
+    }
+
+    const contentLength = Number(response.headers.get('content-length') || 0);
+    if (contentLength && contentLength > maxBytes) {
+      return { ok: false, error: 'source_too_large' };
+    }
+
+    const arrayBuffer = await response.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    if (buffer.length > maxBytes) {
+      return { ok: false, error: 'source_too_large' };
+    }
+
+    const mimeType = String(response.headers.get('content-type') || 'audio/mpeg').toLowerCase();
+    return { ok: true, buffer, mimeType };
+  } catch (error) {
+    return { ok: false, error: error.message };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function postprocessGeneratedAudioExport(sourceAudio) {
+  const cfg = getFfmpegFeatureConfig();
+  const response = {
+    applied: false,
+    skipped: true,
+    reason: 'ffmpeg_export_disabled'
+  };
+
+  if (!cfg.enabled || !cfg.export.enabled) {
+    return response;
+  }
+
+  if (typeof sourceAudio !== 'string' || !sourceAudio.trim()) {
+    return {
+      ...response,
+      reason: 'no_source_audio_url'
+    };
+  }
+
+  const source = sourceAudio.trim();
+  let parsed;
+  let sourceType = 'unknown';
+  const maxBytes = Math.floor(cfg.maxInputMb * 1024 * 1024);
+
+  if (source.startsWith('data:audio/')) {
+    parsed = parseDataAudioUri(source);
+    sourceType = 'data_uri';
+    if (!parsed) {
+      return {
+        ...response,
+        reason: 'invalid_data_audio_uri'
+      };
+    }
+  } else if (source.startsWith('http://') || source.startsWith('https://')) {
+    const downloaded = await downloadAudioUrlToBuffer(source, maxBytes, cfg.timeoutMs);
+    sourceType = 'remote_url';
+    if (!downloaded.ok) {
+      return {
+        ...response,
+        reason: 'source_download_failed',
+        error: downloaded.error
+      };
+    }
+    parsed = {
+      mimeType: downloaded.mimeType,
+      buffer: downloaded.buffer
+    };
+  } else {
+    return {
+      ...response,
+      reason: 'unsupported_source_type'
+    };
+  }
+
+  const tmpPrefix = `saion-ffmpeg-export-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
+  const inputExt = mimeToExtension(parsed.mimeType);
+  const outputExt = cfg.export.format;
+  const inputPath = path.join(os.tmpdir(), `${tmpPrefix}-input.${inputExt}`);
+  const outputPath = path.join(os.tmpdir(), `${tmpPrefix}-output.${outputExt}`);
+
+  try {
+    await fs.writeFile(inputPath, parsed.buffer);
+
+    const args = ['-y', '-i', inputPath, '-vn'];
+    if (outputExt === 'mp3') {
+      args.push('-codec:a', 'libmp3lame', '-b:a', cfg.export.bitrate);
+    } else if (outputExt === 'wav') {
+      args.push('-codec:a', 'pcm_s16le');
+    } else if (outputExt === 'flac') {
+      args.push('-codec:a', 'flac');
+    }
+    args.push(outputPath);
+
+    const run = await runFfmpegCommand(cfg.ffmpegBin, args, cfg.timeoutMs);
+    if (!run.ok) {
+      return {
+        ...response,
+        reason: 'ffmpeg_export_failed',
+        error: run.error
+      };
+    }
+
+    const stats = await fs.stat(outputPath);
+    return {
+      applied: true,
+      skipped: false,
+      reason: 'export_transcoded',
+      sourceType,
+      sourceMimeType: parsed.mimeType,
+      outputFormat: outputExt,
+      outputMimeType: extensionToMime(outputExt),
+      outputPath,
+      outputSizeBytes: stats.size,
+      cleanupInputPath: inputPath
+    };
+  } catch (error) {
+    return {
+      ...response,
+      reason: 'ffmpeg_export_exception',
+      error: error.message
+    };
+  }
+}
+
 function getFfmpegCapabilities() {
   const cfg = getFfmpegFeatureConfig();
   return {
@@ -291,6 +444,11 @@ function getFfmpegCapabilities() {
       ingestTrimSilence: cfg.ingest.trimSilence,
       ingestSampleRate: cfg.ingest.sampleRate,
       ingestChannels: cfg.ingest.channels
+    },
+    phase2b: {
+      exportPostprocessEnabled: cfg.enabled && cfg.export.enabled,
+      exportFormat: cfg.export.format,
+      exportBitrate: cfg.export.bitrate
     }
   };
 }
@@ -299,5 +457,6 @@ module.exports = {
   getFfmpegFeatureConfig,
   probeFfmpegBinary,
   getFfmpegCapabilities,
-  preprocessSourceAudioPayload
+  preprocessSourceAudioPayload,
+  postprocessGeneratedAudioExport
 };
