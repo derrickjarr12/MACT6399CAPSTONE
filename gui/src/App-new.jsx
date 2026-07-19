@@ -327,6 +327,73 @@ function downloadTextFile(filename, content, mimeType = "text/plain") {
   URL.revokeObjectURL(url);
 }
 
+function buildSessionSummaryText(payload = {}) {
+  const settings = payload.settings || {};
+  const current = settings.current || {};
+  const emotion = current.emotion || {};
+  const vocal = current.vocal || {};
+  const fx = settings.fxControls || {};
+  const microTrims = settings.microTrims || {};
+
+  const lines = [
+    "SAION SESSION SUMMARY",
+    "",
+    `Session Title: ${payload.title || "Untitled Session"}`,
+    `Exported At: ${new Date().toISOString()}`,
+    "",
+    "MUSIC CONTEXT",
+    `- Tempo: ${settings.tempo ?? "N/A"} BPM`,
+    `- Time Signature: ${settings.timeSignature || "N/A"}`,
+    `- Emotion Preset: ${settings.emotionPreset || "N/A"}`,
+    `- Vocal Preset: ${settings.vocalPreset || "N/A"}`,
+    "",
+    "PERFORMANCE DIALS",
+    `- Emotion Intensity: ${emotion.intensity ?? "N/A"}%`,
+    `- Emotion Vulnerability: ${emotion.vulnerability ?? "N/A"}%`,
+    `- Emotion Confidence: ${emotion.confidence ?? "N/A"}%`,
+    `- Emotion Tension: ${emotion.tension ?? "N/A"}%`,
+    `- Emotion Warmth: ${emotion.warmth ?? "N/A"}%`,
+    `- Emotion Release: ${emotion.release ?? "N/A"}%`,
+    `- Vocal Delivery: ${vocal.delivery ?? "N/A"}%`,
+    `- Vocal Texture: ${vocal.texture ?? "N/A"}%`,
+    `- Vocal Breath: ${vocal.breath ?? "N/A"}%`,
+    `- Vocal Rasp: ${vocal.rasp ?? "N/A"}%`,
+    `- Vocal Runs: ${vocal.runs ?? "N/A"}%`,
+    `- Vocal Timing: ${vocal.timing ?? "N/A"}%`,
+    `- Vocal Warmth: ${vocal.warmth ?? "N/A"}%`,
+    `- Vocal Release: ${vocal.release ?? "N/A"}%`,
+    "",
+    "FX CONTROLS",
+    `- Reverb: ${fx.reverb ?? "N/A"}%`,
+    `- EQ (L/M/H): ${fx.eqLow ?? "N/A"}% / ${fx.eqMid ?? "N/A"}% / ${fx.eqHigh ?? "N/A"}%`,
+    `- Compression: ${fx.compression ?? "N/A"}%`,
+    `- Delay: ${fx.delay ?? "N/A"}%`,
+    "",
+    "MICRO TRIMS",
+    `- Emotion: ${microTrims.emotion ?? 0}`,
+    `- Vocal: ${microTrims.vocal ?? 0}`,
+    `- FX: ${microTrims.fx ?? 0}`,
+    "",
+    "AUDIO REFERENCES",
+    `- Before Audio: ${payload.beforeAudio ? "Attached/Linked" : "Not set"}`,
+    `- After Audio: ${payload.afterAudio ? "Attached/Linked" : "Not set"}`,
+    "",
+    "PROMPT FINE-TUNE",
+    payload.promptFineTune || "(none)",
+    "",
+    "GENERATED PROMPT",
+    payload.generatedPrompt || "(not generated yet)",
+    "",
+    "NOTATION",
+    payload.notation || "(none)",
+    "",
+    "NOTE",
+    "This summary is a user-friendly export. For technical integrations, use the Advanced JSON export option."
+  ];
+
+  return lines.join("\n");
+}
+
 function sanitizeFileStem(value, fallback = "song-idea") {
   const normalized = String(value || "")
     .trim()
@@ -2237,6 +2304,20 @@ export default function App() {
     setSavedState("SESSION JSON EXPORTED");
   };
 
+  const handleExportSessionSummary = () => {
+    const payload = {
+      ...buildSessionPayload(),
+      exportedAt: new Date().toISOString()
+    };
+    const fileStem = `${(sessionTitle || "song-idea").replace(/\s+/g, "-").toLowerCase()}`;
+    downloadTextFile(
+      `${fileStem}-session-summary.txt`,
+      buildSessionSummaryText(payload),
+      "text/plain"
+    );
+    setSavedState("SESSION SUMMARY EXPORTED");
+  };
+
   const handleExportAfterAudio = async () => {
     const source = afterAudio.trim();
     if (!source) {
@@ -2292,10 +2373,14 @@ export default function App() {
     if (hasNewAudio) {
       await handleExportAfterAudio();
     }
-    handleExportSessionJson();
+    handleExportSessionSummary();
     if (hasNewAudio) {
       setSavedState("EXPORT COMPLETE");
     }
+    setTransportNotice({
+      tone: "success",
+      message: "Export complete. You now get a readable session summary by default."
+    });
   };
 
   const emotionDial = currentSettings.emotion.intensity;
@@ -3237,7 +3322,7 @@ export default function App() {
               className="save-btn"
               onClick={handleExport}
             >
-              Export
+              Export Summary
             </button>
           </div>
           <div className="waveform-label">{`${transportStatus} · ${savedState}`}</div>
