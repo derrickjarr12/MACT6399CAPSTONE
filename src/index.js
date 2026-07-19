@@ -28,7 +28,8 @@ const { validateStartup } = require("./config/validate-startup");
 const {
   getFfmpegFeatureConfig,
   probeFfmpegBinary,
-  getFfmpegCapabilities
+  getFfmpegCapabilities,
+  preprocessSourceAudioPayload
 } = require('./media/ffmpeg');
 
 // --- Express server setup ---
@@ -728,6 +729,38 @@ app.post(['/api/provider/generate', '/api/apiframe/generate'], async (req, res) 
       return;
     }
 
+    // Phase 2a: optional backend-only ingest preprocessing for data-URI source audio.
+    let effectivePayload = payload;
+    let ffmpegIngestMeta = null;
+    try {
+      const preprocess = await preprocessSourceAudioPayload(payload);
+      effectivePayload = preprocess.payload || payload;
+      ffmpegIngestMeta = {
+        applied: preprocess.applied,
+        skipped: preprocess.skipped,
+        reason: preprocess.reason,
+        ...(preprocess.applied
+          ? {
+              sourceKey: preprocess.sourceKey,
+              originalMimeType: preprocess.originalMimeType,
+              outputMimeType: preprocess.outputMimeType,
+              outputSampleRate: preprocess.outputSampleRate,
+              outputChannels: preprocess.outputChannels,
+              filters: preprocess.filters
+            }
+          : {}),
+        ...(preprocess.error ? { error: preprocess.error } : {})
+      };
+    } catch (error) {
+      ffmpegIngestMeta = {
+        applied: false,
+        skipped: true,
+        reason: 'ingest_preprocess_failed_safe_fallback',
+        error: error.message
+      };
+      effectivePayload = payload;
+    }
+
     if (isDryRunEnabled()) {
       const providerJobId = `dryrun-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
       const data = {
@@ -739,7 +772,7 @@ app.post(['/api/provider/generate', '/api/apiframe/generate'], async (req, res) 
         echoed: {
           generator: String(generator || '').toLowerCase(),
           prompt,
-          payload
+          payload: effectivePayload
         }
       };
 
@@ -756,7 +789,7 @@ app.post(['/api/provider/generate', '/api/apiframe/generate'], async (req, res) 
         providerJobId,
         compareContext: compare,
         prompt,
-        payload,
+        payload: effectivePayload,
         upstreamStatus: 202,
         responseBody: data
       });
@@ -766,6 +799,7 @@ app.post(['/api/provider/generate', '/api/apiframe/generate'], async (req, res) 
         _pnf: {
           ...normalized,
           ...(compare ? { hasCompareContext: true } : {}),
+          ffmpegIngest: ffmpegIngestMeta,
           dryRun: true,
           http: {
             status: 202,
@@ -784,10 +818,10 @@ app.post(['/api/provider/generate', '/api/apiframe/generate'], async (req, res) 
     };
 
     const upstreamBody = {
-      ...payload,
-      ...(payload.model || cfg.model ? { model: payload.model || cfg.model } : {}),
+      ...effectivePayload,
+      ...(effectivePayload.model || cfg.model ? { model: effectivePayload.model || cfg.model } : {}),
       prompt,
-      ...(isElevenLabs ? { text: payload.text || prompt } : {})
+      ...(isElevenLabs ? { text: effectivePayload.text || prompt } : {})
     };
 
     const { upstreamRes } = await fetchWithFallbackPaths({
@@ -814,6 +848,10 @@ app.post(['/api/provider/generate', '/api/apiframe/generate'], async (req, res) 
       providerJobId,
       payload: data
     });
+    const normalizedWithFfmpeg = {
+      ...normalized,
+      ffmpegIngest: ffmpegIngestMeta
+    };
 
     await upsertRequestRecord({
       requestId,
@@ -821,7 +859,7 @@ app.post(['/api/provider/generate', '/api/apiframe/generate'], async (req, res) 
       providerJobId,
       compareContext: compare,
       prompt,
-      payload,
+      payload: effectivePayload,
       upstreamStatus: upstreamRes.status,
       responseBody: data
     });
@@ -830,7 +868,7 @@ app.post(['/api/provider/generate', '/api/apiframe/generate'], async (req, res) 
       res,
       upstreamRes,
       data,
-      normalized,
+      normalized: normalizedWithFfmpeg,
       hasCompareContext: Boolean(compare)
     });
   } catch (error) {

@@ -188,6 +188,19 @@ MYSQL_TABLE=pnf_request_jobs
 
 # Optional MySQL pool size
 MYSQL_CONNECTION_LIMIT=10
+
+# Optional FFmpeg feature flags (backend-only)
+FFMPEG_ENABLED=false
+FFMPEG_BIN=ffmpeg
+FFPROBE_BIN=ffprobe
+FFMPEG_TIMEOUT_MS=8000
+
+# Phase 2a ingest preprocessing
+FFMPEG_INGEST_PREPROCESS_ENABLED=false
+FFMPEG_INGEST_NORMALIZE=true
+FFMPEG_INGEST_TRIM_SILENCE=false
+FFMPEG_INGEST_SAMPLE_RATE=44100
+FFMPEG_INGEST_CHANNELS=1
 ```
 
 ## Troubleshooting

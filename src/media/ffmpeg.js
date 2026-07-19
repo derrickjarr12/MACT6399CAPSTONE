@@ -1,4 +1,8 @@
 const { spawn } = require('child_process');
+const fs = require('fs/promises');
+const os = require('os');
+const path = require('path');
+const crypto = require('crypto');
 
 function parseBoolean(value, fallback = false) {
   if (value === undefined || value === null || value === '') return fallback;
@@ -12,12 +16,26 @@ function getFfmpegFeatureConfig() {
   const ffprobeBin = String(process.env.FFPROBE_BIN || 'ffprobe').trim() || 'ffprobe';
   const timeoutMsRaw = Number(process.env.FFMPEG_TIMEOUT_MS || 8000);
   const timeoutMs = Number.isFinite(timeoutMsRaw) && timeoutMsRaw > 0 ? timeoutMsRaw : 8000;
+  const ingestEnabled = parseBoolean(process.env.FFMPEG_INGEST_PREPROCESS_ENABLED, false);
+  const ingestNormalize = parseBoolean(process.env.FFMPEG_INGEST_NORMALIZE, true);
+  const ingestTrimSilence = parseBoolean(process.env.FFMPEG_INGEST_TRIM_SILENCE, false);
+  const ingestSampleRateRaw = Number(process.env.FFMPEG_INGEST_SAMPLE_RATE || 44100);
+  const ingestChannelsRaw = Number(process.env.FFMPEG_INGEST_CHANNELS || 1);
+  const ingestSampleRate = Number.isFinite(ingestSampleRateRaw) && ingestSampleRateRaw >= 8000 ? ingestSampleRateRaw : 44100;
+  const ingestChannels = Number.isFinite(ingestChannelsRaw) && ingestChannelsRaw >= 1 && ingestChannelsRaw <= 2 ? ingestChannelsRaw : 1;
 
   return {
     enabled,
     ffmpegBin,
     ffprobeBin,
-    timeoutMs
+    timeoutMs,
+    ingest: {
+      enabled: ingestEnabled,
+      normalize: ingestNormalize,
+      trimSilence: ingestTrimSilence,
+      sampleRate: ingestSampleRate,
+      channels: ingestChannels
+    }
   };
 }
 
@@ -84,18 +102,202 @@ async function probeFfmpegBinary() {
   };
 }
 
+function runFfmpegCommand(binary, args, timeoutMs) {
+  return new Promise((resolve) => {
+    let stderr = '';
+    const child = spawn(binary, args, {
+      stdio: ['ignore', 'ignore', 'pipe']
+    });
+
+    const timer = setTimeout(() => {
+      child.kill('SIGKILL');
+      resolve({ ok: false, error: 'timeout' });
+    }, timeoutMs);
+
+    child.stderr.on('data', (chunk) => {
+      stderr += String(chunk);
+    });
+
+    child.on('error', (error) => {
+      clearTimeout(timer);
+      resolve({ ok: false, error: error.message });
+    });
+
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      if (code !== 0) {
+        resolve({ ok: false, error: stderr.trim() || `exit ${code}` });
+        return;
+      }
+
+      resolve({ ok: true });
+    });
+  });
+}
+
+function parseDataAudioUri(dataUri) {
+  if (typeof dataUri !== 'string' || !dataUri.startsWith('data:audio/')) return null;
+
+  const parts = dataUri.split(',', 2);
+  if (parts.length !== 2) return null;
+
+  const [meta, dataPart] = parts;
+  const mimeMatch = meta.match(/^data:([^;,]+)(;base64)?/i);
+  if (!mimeMatch) return null;
+
+  const mimeType = String(mimeMatch[1] || 'audio/wav').toLowerCase();
+  const isBase64 = meta.includes(';base64');
+  const buffer = isBase64
+    ? Buffer.from(dataPart, 'base64')
+    : Buffer.from(decodeURIComponent(dataPart), 'utf8');
+
+  return {
+    mimeType,
+    buffer
+  };
+}
+
+function mimeToExtension(mimeType) {
+  if (!mimeType) return 'bin';
+  if (mimeType.includes('mpeg')) return 'mp3';
+  if (mimeType.includes('wav') || mimeType.includes('x-wav')) return 'wav';
+  if (mimeType.includes('flac')) return 'flac';
+  if (mimeType.includes('ogg')) return 'ogg';
+  if (mimeType.includes('mp4') || mimeType.includes('m4a')) return 'm4a';
+  return 'bin';
+}
+
+function buildWavDataUri(buffer) {
+  return `data:audio/wav;base64,${buffer.toString('base64')}`;
+}
+
+function resolveIngestSourceKey(payload) {
+  const keys = ['sourceAudioData', 'source_audio_data', 'inputAudioData', 'input_audio_data'];
+  for (const key of keys) {
+    if (typeof payload[key] === 'string' && payload[key].startsWith('data:audio/')) {
+      return key;
+    }
+  }
+  return null;
+}
+
+async function preprocessSourceAudioPayload(payload = {}) {
+  const cfg = getFfmpegFeatureConfig();
+  const response = {
+    applied: false,
+    skipped: true,
+    reason: 'ffmpeg_ingest_disabled',
+    payload
+  };
+
+  if (!cfg.enabled || !cfg.ingest.enabled) {
+    return response;
+  }
+
+  const sourceKey = resolveIngestSourceKey(payload);
+  if (!sourceKey) {
+    return {
+      ...response,
+      reason: 'no_data_audio_source_found'
+    };
+  }
+
+  const parsed = parseDataAudioUri(payload[sourceKey]);
+  if (!parsed) {
+    return {
+      ...response,
+      reason: 'invalid_data_audio_uri'
+    };
+  }
+
+  const tmpPrefix = `saion-ffmpeg-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
+  const inputExt = mimeToExtension(parsed.mimeType);
+  const inputPath = path.join(os.tmpdir(), `${tmpPrefix}-input.${inputExt}`);
+  const outputPath = path.join(os.tmpdir(), `${tmpPrefix}-output.wav`);
+
+  try {
+    await fs.writeFile(inputPath, parsed.buffer);
+
+    const filters = [];
+    if (cfg.ingest.normalize) {
+      filters.push('loudnorm=I=-16:TP=-1.5:LRA=11');
+    }
+    if (cfg.ingest.trimSilence) {
+      filters.push('silenceremove=start_periods=1:start_duration=0.1:start_threshold=-50dB:stop_periods=1:stop_duration=0.2:stop_threshold=-50dB');
+    }
+
+    const args = ['-y', '-i', inputPath, '-vn'];
+    if (filters.length > 0) {
+      args.push('-af', filters.join(','));
+    }
+    args.push(
+      '-ac', String(cfg.ingest.channels),
+      '-ar', String(cfg.ingest.sampleRate),
+      '-c:a', 'pcm_s16le',
+      outputPath
+    );
+
+    const run = await runFfmpegCommand(cfg.ffmpegBin, args, cfg.timeoutMs);
+    if (!run.ok) {
+      return {
+        ...response,
+        reason: 'ffmpeg_process_failed',
+        error: run.error
+      };
+    }
+
+    const converted = await fs.readFile(outputPath);
+    const nextPayload = {
+      ...payload,
+      [sourceKey]: buildWavDataUri(converted),
+      sourceAudioFormat: 'wav',
+      inputAudioFormat: 'wav'
+    };
+
+    return {
+      applied: true,
+      skipped: false,
+      reason: 'converted_to_wav',
+      sourceKey,
+      originalMimeType: parsed.mimeType,
+      outputMimeType: 'audio/wav',
+      outputSampleRate: cfg.ingest.sampleRate,
+      outputChannels: cfg.ingest.channels,
+      filters,
+      payload: nextPayload
+    };
+  } catch (error) {
+    return {
+      ...response,
+      reason: 'ffmpeg_preprocess_exception',
+      error: error.message
+    };
+  } finally {
+    await fs.rm(inputPath, { force: true }).catch(() => {});
+    await fs.rm(outputPath, { force: true }).catch(() => {});
+  }
+}
+
 function getFfmpegCapabilities() {
-  // Phase 1 reports planned capabilities without activating route-level processing yet.
+  const cfg = getFfmpegFeatureConfig();
   return {
     conversion: ['mp3', 'wav', 'flac'],
     processing: ['normalize_loudness', 'trim_silence', 'join_audio', 'compress_exports'],
     analysisArtifacts: ['spectrogram', 'waveform_image'],
-    advanced: ['stem_split']
+    advanced: ['stem_split'],
+    phase2a: {
+      ingestPreprocessEnabled: cfg.enabled && cfg.ingest.enabled,
+      ingestNormalize: cfg.ingest.normalize,
+      ingestTrimSilence: cfg.ingest.trimSilence,
+      ingestSampleRate: cfg.ingest.sampleRate,
+      ingestChannels: cfg.ingest.channels
+    }
   };
 }
 
 module.exports = {
   getFfmpegFeatureConfig,
   probeFfmpegBinary,
-  getFfmpegCapabilities
+  getFfmpegCapabilities,
+  preprocessSourceAudioPayload
 };
