@@ -2075,70 +2075,6 @@ export default function App() {
       return;
     }
 
-    const normalizedGenerator = String(generator || "").toLowerCase();
-
-    // Manual Mureka path: download a file the user can upload with their own workflow.
-    if (normalizedGenerator === "mureka") {
-      const hasSourceAudio = Boolean(beforeAudio.trim());
-      const sourceAudioValue = beforeAudio.trim();
-      const sourceAudioIsBlob = sourceAudioValue.startsWith("blob:");
-      const sourceAudioIsDataUrl = isAudioDataUrl(sourceAudioValue);
-      const sourceAudioData = beforeAudioDataUrl || (sourceAudioIsDataUrl ? sourceAudioValue : "");
-      const hasSourceAudioUrl = hasSourceAudio && !sourceAudioIsBlob && !sourceAudioIsDataUrl;
-
-      const sourcePayload = hasSourceAudio
-        ? {
-            ...(hasSourceAudioUrl
-              ? {
-                  sourceAudioUrl: beforeAudio.trim(),
-                  source_audio_url: beforeAudio.trim(),
-                  inputAudioUrl: beforeAudio.trim(),
-                  input_audio_url: beforeAudio.trim()
-                }
-              : {
-                  sourceAudioData: sourceAudioData,
-                  source_audio_data: sourceAudioData,
-                  inputAudioData: sourceAudioData,
-                  input_audio_data: sourceAudioData,
-                  sourceAudioFileName: beforeAudioFileName || undefined,
-                  sourceAudioFormat: beforeAudioFormat || undefined
-                })
-          }
-        : {};
-
-      const makePayload = {
-        generator: "mureka",
-        prompt: generatedPrompt,
-        notation: generatedNotation,
-        effects: { ...effectiveFxControls },
-        ...sourcePayload,
-        metadata: {
-          sessionTitle,
-          tempo,
-          timeSignature,
-          emotionPreset,
-          vocalPreset,
-          vocalDetailLevel,
-          harmonyStyle,
-          exportedAt: new Date().toISOString()
-        }
-      };
-
-      downloadTextFile(
-        `${(sessionTitle || "song-idea").replace(/\s+/g, "-").toLowerCase()}-mureka-make-payload.json`,
-        JSON.stringify(makePayload, null, 2),
-        "application/json"
-      );
-
-      try {
-        await navigator.clipboard.writeText(generatedPrompt);
-      } catch (_) {}
-
-      setSavedState("MUREKA FILE READY");
-      setTransportStatus("READY TO UPLOAD");
-      return;
-    }
-
     const apiBase = (import.meta.env.VITE_API_BASE_URL || "http://localhost:3000").replace(/\/$/, "");
 
     try {
@@ -2158,6 +2094,11 @@ export default function App() {
       if (hasSourceAudio && !hasSourceAudioUrl && !hasSourceAudioData) {
         throw new Error("Source vocal is local but not ready yet. Re-upload the file and try again.");
       }
+
+      const requestId =
+        typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+          ? crypto.randomUUID()
+          : `req-${Date.now()}`;
 
       const sourcePayload = hasSourceAudio
         ? {
@@ -2184,6 +2125,7 @@ export default function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           generator,
+          requestId,
           prompt: generatedPrompt,
           payload: {
             prompt: generatedPrompt,
@@ -2225,7 +2167,9 @@ export default function App() {
       const maxPolls = 20;
       for (let attempt = 0; attempt < maxPolls; attempt += 1) {
         await new Promise((resolve) => setTimeout(resolve, 3000));
-        const statusRes = await fetch(`${apiBase}/api/apiframe/status/${encodeURIComponent(jobId)}?generator=${encodeURIComponent(generator)}`);
+        const statusRes = await fetch(
+          `${apiBase}/api/apiframe/status/${encodeURIComponent(jobId)}?generator=${encodeURIComponent(generator)}&requestId=${encodeURIComponent(requestId)}`
+        );
         const statusData = await readJsonSafe(statusRes);
         if (!statusRes.ok) {
           throw createHttpError(statusRes, statusData, "Status request failed.");
