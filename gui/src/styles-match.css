@@ -36,6 +36,10 @@
   --shell-pad-x: 1.5rem;
   --shell-pad-y: 0.9rem;
   --footer-playback-shift-x: -240px;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
 }
 
 * {
@@ -94,10 +98,10 @@ body::after {
 }
 
 .app-redesign {
-  min-height: 100vh;
-  height: 100vh;
+  min-height: 100dvh;
+  height: auto;
   display: grid;
-  grid-template-rows: 82px 1fr 98px;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   position: relative;
   isolation: isolate;
 }
@@ -124,8 +128,8 @@ body::after {
 
 .gear-btn {
   position: fixed;
-  top: max(12px, env(safe-area-inset-top));
-  right: max(8px, env(safe-area-inset-right));
+  top: max(12px, calc(8px + var(--safe-top)));
+  right: max(8px, calc(8px + var(--safe-right)));
   width: 46px;
   height: 46px;
   border-radius: 50%;
@@ -155,9 +159,13 @@ body::after {
   top: 0;
   right: 0;
   width: min(420px, 90vw);
-  height: 100vh;
+  height: 100dvh;
   z-index: 1500;
-  padding: 1.1rem 1.1rem 1.4rem;
+  padding:
+    calc(1.1rem + var(--safe-top))
+    calc(1.1rem + var(--safe-right))
+    calc(1.4rem + var(--safe-bottom))
+    1.1rem;
   background: rgba(10, 20, 32, 0.9);
   backdrop-filter: blur(16px);
   border-left: 1px solid var(--line);
@@ -215,7 +223,11 @@ body::after {
   grid-template-columns: 230px 1fr 200px;
   align-items: center;
   gap: 1rem;
-  padding: var(--shell-pad-y) var(--shell-pad-x);
+  padding:
+    calc(var(--shell-pad-y) + min(var(--safe-top), 16px))
+    calc(var(--shell-pad-x) + var(--safe-right))
+    var(--shell-pad-y)
+    calc(var(--shell-pad-x) + var(--safe-left));
   background: linear-gradient(180deg, rgba(2, 14, 25, 0.9), rgba(2, 10, 19, 0.8));
   border-bottom: 1px solid var(--line);
   box-shadow: inset 0 -1px 0 rgba(104, 232, 255, 0.2), 0 8px 24px rgba(0, 0, 0, 0.4);
@@ -358,7 +370,7 @@ body::after {
 }
 
 .orb-module-shell {
-  min-height: calc(100vh - 250px);
+  min-height: calc(100dvh - 250px);
   display: grid;
   grid-template-rows: auto 1fr auto;
   gap: 0.75rem;
@@ -1337,7 +1349,11 @@ input[type="range"].glass-range::-moz-range-thumb {
 .ab-section {
   border-top: 1px solid var(--line);
   background: linear-gradient(180deg, rgba(3, 14, 26, 0.88), rgba(1, 9, 18, 0.9));
-  padding: var(--shell-pad-y) var(--shell-pad-x);
+  padding:
+    var(--shell-pad-y)
+    calc(var(--shell-pad-x) + var(--safe-right))
+    calc(var(--shell-pad-y) + var(--safe-bottom))
+    calc(var(--shell-pad-x) + var(--safe-left));
 }
 
 .ab-container {
@@ -2193,8 +2209,8 @@ textarea {
   }
 
   .gear-btn {
-    top: max(10px, env(safe-area-inset-top));
-    right: max(8px, env(safe-area-inset-right));
+    top: max(10px, calc(8px + var(--safe-top)));
+    right: max(8px, calc(8px + var(--safe-right)));
   }
 
   .top-nav {
@@ -2827,4 +2843,277 @@ select,
   margin-top: 0;
   border-radius: 4px;
   filter: invert(1) hue-rotate(180deg) brightness(0.85);
+}
+
+/* Responsive hardening for phones/tablets and dynamic mobile browser UI */
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+@media (max-width: 1200px) {
+  :root {
+    --footer-playback-shift-x: 0px;
+  }
+}
+
+@media (max-width: 900px) {
+  .waveform-dropzone {
+    width: min(360px, 100%);
+  }
+
+  .upload-file-name {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+  }
+
+  .ab-container {
+    gap: 0.65rem;
+  }
+
+  .save-btn {
+    font-size: 0.62rem;
+    padding: 0.4rem 0.6rem;
+  }
+}
+
+@media (max-width: 768px) {
+  .content-area {
+    overflow-x: hidden;
+  }
+
+  .nav-tab {
+    min-height: 40px;
+    font-size: 0.74rem;
+    letter-spacing: 0.06em;
+  }
+
+  .meta-item {
+    font-size: 0.95rem;
+  }
+
+  .meta-item small {
+    font-size: 0.62rem;
+  }
+
+  .control-btn {
+    min-width: 36px;
+    min-height: 36px;
+  }
+
+  .control-btn.play {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .ab-label,
+  .waveform-label,
+  .volume-label {
+    font-size: 0.7rem;
+  }
+
+  .waveform-audio-player,
+  .inline-audio-player,
+  .waveform-dropzone::after {
+    height: 32px;
+    flex-basis: 32px;
+  }
+}
+
+@media (max-width: 480px) {
+  .top-nav {
+    gap: 0.4rem;
+  }
+
+  .nav-tab {
+    min-height: 42px;
+    font-size: 0.72rem;
+  }
+
+  .volume-slider {
+    width: min(180px, 100%);
+  }
+
+  .ab-label,
+  .waveform-label,
+  .volume-label {
+    font-size: 0.66rem;
+  }
+}
+
+/* iPhone and Galaxy device-class tuning */
+@media (max-width: 430px) {
+  :root {
+    --shell-pad-x: 0.6rem;
+  }
+
+  .top-nav {
+    padding: 0.55rem var(--shell-pad-x);
+  }
+
+  .nav-brand-logo {
+    max-width: 132px;
+    max-height: 32px;
+  }
+
+  .nav-tabs {
+    gap: 0.38rem;
+  }
+
+  .nav-tab {
+    min-height: 42px;
+    padding: 0.45rem 0.4rem;
+    font-size: 0.69rem;
+    letter-spacing: 0.05em;
+  }
+
+  .meta-item {
+    padding: 0.38rem 0.45rem;
+  }
+
+  .ab-container {
+    gap: 0.55rem;
+  }
+
+  .waveform,
+  .waveform-dropzone {
+    width: 100%;
+  }
+
+  .orb-module-stage {
+    min-height: 280px;
+  }
+
+  .orb-stage-layout {
+    min-height: 280px;
+    grid-template-rows: auto minmax(200px, auto) auto;
+  }
+
+  .orb-stage-globe {
+    min-height: 200px;
+  }
+}
+
+/* iPhone 6/7/8 Plus / XR class and similar Android widths */
+@media (max-width: 414px) {
+  .nav-tab {
+    font-size: 0.68rem;
+  }
+
+  .ab-label,
+  .waveform-label,
+  .volume-label {
+    font-size: 0.65rem;
+  }
+
+  .upload-local-btn,
+  .save-btn {
+    min-height: 36px;
+  }
+}
+
+/* iPhone 12/13/14/15 base width class */
+@media (max-width: 390px) {
+  .nav-tabs {
+    grid-template-columns: 1fr;
+  }
+
+  .nav-meta {
+    grid-template-columns: 1fr;
+  }
+
+  .meta-item {
+    justify-items: stretch;
+  }
+
+  .meta-input,
+  .meta-select {
+    min-height: 34px;
+  }
+
+  .waveform-audio-player,
+  .inline-audio-player,
+  .waveform-dropzone::after,
+  .inline-audio-placeholder {
+    height: 34px;
+    flex-basis: 34px;
+  }
+
+  .transport-notice {
+    font-size: 0.62rem;
+    letter-spacing: 0.06em;
+  }
+}
+
+/* Common Galaxy compact widths (384 logical px class) */
+@media (max-width: 384px) {
+  .content-area {
+    padding: 0.62rem var(--shell-pad-x);
+  }
+
+  .card {
+    padding: 0.58rem;
+  }
+
+  .control-btn {
+    min-width: 34px;
+    min-height: 34px;
+  }
+
+  .control-btn.play {
+    min-width: 42px;
+    min-height: 42px;
+  }
+
+  .volume-slider {
+    width: min(168px, 100%);
+  }
+}
+
+/* Very small Android widths (360 class) */
+@media (max-width: 360px) {
+  .nav-brand-logo {
+    max-width: 124px;
+    max-height: 30px;
+  }
+
+  .nav-tab {
+    min-height: 40px;
+    font-size: 0.66rem;
+  }
+
+  .version-btn {
+    width: 28px;
+    height: 28px;
+  }
+
+  .save-btn {
+    font-size: 0.58rem;
+    padding: 0.35rem 0.48rem;
+  }
+}
+
+/* Landscape phones (iPhone + Galaxy): reduce vertical pressure */
+@media (max-height: 500px) and (orientation: landscape) {
+  .top-nav {
+    gap: 0.3rem;
+    padding-top: 0.42rem;
+    padding-bottom: 0.42rem;
+  }
+
+  .content-area {
+    padding-top: 0.5rem;
+    padding-bottom: 0.5rem;
+  }
+
+  .orb-module-stage,
+  .orb-stage-layout,
+  .orb-stage-globe {
+    min-height: 180px;
+  }
+
+  .ab-section {
+    padding-top: 0.45rem;
+    padding-bottom: calc(0.45rem + var(--safe-bottom));
+  }
 }
