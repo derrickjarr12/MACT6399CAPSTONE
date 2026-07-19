@@ -31,6 +31,11 @@
   --pink: #ff73d6;
   --text: #d7f1ff;
   --text-soft: #86aac0;
+  --panel-min-height: clamp(520px, 64dvh, 700px);
+  --core-panel-min-height: clamp(560px, 68dvh, 760px);
+  --orb-shell-min-height: clamp(520px, calc(100dvh - 250px), 840px);
+  --orb-stage-min-height: clamp(360px, 52dvh, 520px);
+  --orb-globe-min-height: clamp(300px, 46dvh, 480px);
   --font-ui: "Exo 2", "Space Grotesk", sans-serif;
   --font-display: "Syncopate", "Exo 2", sans-serif;
   --shell-pad-x: 1.5rem;
@@ -370,7 +375,7 @@ body::after {
 }
 
 .orb-module-shell {
-  min-height: calc(100dvh - 250px);
+  min-height: var(--orb-shell-min-height);
   display: grid;
   grid-template-rows: auto 1fr auto;
   gap: 0.75rem;
@@ -409,7 +414,7 @@ body::after {
 }
 
 .orb-module-stage {
-  min-height: 520px;
+  min-height: var(--orb-stage-min-height);
   border: 1px solid var(--line-soft);
   background: radial-gradient(circle at 50% 45%, rgba(38, 177, 255, 0.2), rgba(5, 20, 33, 0.6) 48%, rgba(3, 14, 24, 0.82) 100%);
   display: block;
@@ -418,7 +423,7 @@ body::after {
 
 .orb-stage-layout {
   width: 100%;
-  min-height: 520px;
+  min-height: var(--orb-stage-min-height);
   display: grid;
   grid-template-columns: 100px minmax(280px, 1fr) 100px;
   align-items: center;
@@ -428,7 +433,7 @@ body::after {
 
 .orb-stage-globe {
   width: 100%;
-  min-height: 480px;
+  min-height: var(--orb-globe-min-height);
   display: grid;
   place-items: center;
 }
@@ -631,7 +636,7 @@ input[type="range"].glass-range::-moz-range-thumb {
     radial-gradient(circle at 20% 8%, rgba(63, 209, 255, 0.2), transparent 42%);
   border: 1px solid var(--line);
   clip-path: polygon(0 16px, 16px 0, calc(100% - 16px) 0, 100% 16px, 100% calc(100% - 16px), calc(100% - 16px) 100%, 16px 100%, 0 calc(100% - 16px));
-  min-height: 640px;
+  min-height: var(--panel-min-height);
   padding: 0.75rem 0.9rem 0.7rem;
   box-shadow: inset 0 0 0 1px rgba(81, 215, 255, 0.12), 0 0 26px rgba(0, 0, 0, 0.45);
   overflow: hidden;
@@ -1146,7 +1151,7 @@ input[type="range"].glass-range::-moz-range-thumb {
 }
 
 .core-card {
-  min-height: 680px;
+  min-height: var(--core-panel-min-height);
 }
 
 .orb-module-back-btn {
@@ -1175,7 +1180,7 @@ input[type="range"].glass-range::-moz-range-thumb {
 }
 
 .globe-wrapper {
-  min-height: 390px;
+  min-height: var(--orb-globe-min-height);
   position: relative;
   display: grid;
   place-items: center;
@@ -2388,7 +2393,7 @@ select,
 .generate-panel-shell {
   width: 100%;
   height: 100%;
-  min-height: 0;
+  min-height: var(--panel-min-height);
   overflow: auto;
   background: linear-gradient(135deg, rgba(7, 23, 37, 0.65) 0%, rgba(7, 23, 37, 0.45) 100%);
   border: 1px solid var(--line);
@@ -2468,6 +2473,14 @@ select,
 }
 
 @media (max-width: 1200px) {
+  :root {
+    --panel-min-height: clamp(500px, 62dvh, 660px);
+    --core-panel-min-height: clamp(530px, 66dvh, 720px);
+    --orb-shell-min-height: clamp(500px, 74dvh, 760px);
+    --orb-stage-min-height: clamp(340px, 48dvh, 430px);
+    --orb-globe-min-height: clamp(280px, 42dvh, 390px);
+  }
+
   .top-nav {
     grid-template-columns: 180px 1fr 170px;
     gap: 0.7rem;
@@ -2494,16 +2507,17 @@ select,
     width: 56px;
   }
 
-  .orb-module-shell {
-    min-height: min(78vh, 760px);
-  }
-
-  .orb-module-stage {
-    min-height: 430px;
-  }
 }
 
 @media (max-width: 1024px) {
+  :root {
+    --panel-min-height: clamp(460px, 58dvh, 620px);
+    --core-panel-min-height: clamp(500px, 62dvh, 680px);
+    --orb-shell-min-height: clamp(460px, 70dvh, 700px);
+    --orb-stage-min-height: clamp(300px, 44dvh, 430px);
+    --orb-globe-min-height: clamp(240px, 38dvh, 390px);
+  }
+
   .top-nav {
     grid-template-columns: 1fr;
     justify-items: stretch;
@@ -2566,14 +2580,9 @@ select,
   }
 
   .orb-stage-layout {
-    min-height: 430px;
     grid-template-columns: 84px minmax(220px, 1fr) 84px;
     padding: 8px;
     gap: 10px;
-  }
-
-  .orb-stage-globe {
-    min-height: 390px;
   }
 
   .orb-stage-thumb-btn {
@@ -2586,6 +2595,11 @@ select,
   :root {
     --shell-pad-x: 0.8rem;
     --shell-pad-y: 0.7rem;
+    --panel-min-height: auto;
+    --core-panel-min-height: auto;
+    --orb-shell-min-height: auto;
+    --orb-stage-min-height: 300px;
+    --orb-globe-min-height: 220px;
   }
 
   .top-nav {
@@ -2627,6 +2641,10 @@ select,
 
   .content-area {
     padding: 0.75rem var(--shell-pad-x);
+  }
+
+  .generate-panel-shell {
+    min-height: 0;
   }
 
   .card {
