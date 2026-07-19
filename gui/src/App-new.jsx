@@ -926,8 +926,21 @@ const TEXTURE_PRESETS = [
   }
 ];
 
+const GENERATOR_VALUE_MAP = {
+  suno: "suno",
+  mureka: "mureka",
+  "mureka upload": "mureka",
+  udio: "udio",
+  elevenlabs: "elevenlabs"
+};
+
+function normalizeGeneratorValue(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return GENERATOR_VALUE_MAP[normalized] || "mureka";
+}
+
 export default function App() {
-  const [generator, setGenerator] = useState("Suno");
+  const [generator, setGenerator] = useState("elevenlabs");
   const [vocalDetailLevel, setVocalDetailLevel] = useState("Balanced");
   const [harmonyStyle, setHarmonyStyle] = useState("Soft Layered");
   const [sessionTitle, setSessionTitle] = useState("Song Idea 1");
@@ -2142,11 +2155,15 @@ export default function App() {
       return;
     }
 
-    const defaultApiBase =
+    const envApiBase = String(import.meta.env.VITE_API_BASE_URL || "").trim();
+    const runtimeOrigin =
       typeof window !== "undefined" && window.location?.origin
         ? window.location.origin
         : "http://localhost:3000";
-    const apiBase = (import.meta.env.VITE_API_BASE_URL || defaultApiBase).replace(/\/$/, "");
+    const defaultApiBase = import.meta.env.DEV ? "http://localhost:3000" : runtimeOrigin;
+    const apiBase = (envApiBase || defaultApiBase).replace(/\/$/, "");
+    const generatorId = normalizeGeneratorValue(generator);
+    const promptToSend = (generatedPrompt || generatedPromptRaw || "").trim();
 
     try {
       setIsGenerating(true);
@@ -2195,11 +2212,11 @@ export default function App() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          generator,
+          generator: generatorId,
           requestId,
-          prompt: generatedPrompt,
+          prompt: promptToSend,
           payload: {
-            prompt: generatedPrompt,
+            prompt: promptToSend,
             notation: generatedNotation,
             effects: { ...effectiveFxControls },
             ...sourcePayload,
@@ -2239,7 +2256,7 @@ export default function App() {
       for (let attempt = 0; attempt < maxPolls; attempt += 1) {
         await new Promise((resolve) => setTimeout(resolve, 3000));
         const statusRes = await fetch(
-          `${apiBase}/api/apiframe/status/${encodeURIComponent(jobId)}?generator=${encodeURIComponent(generator)}&requestId=${encodeURIComponent(requestId)}`
+          `${apiBase}/api/apiframe/status/${encodeURIComponent(jobId)}?generator=${encodeURIComponent(generatorId)}&requestId=${encodeURIComponent(requestId)}`
         );
         const statusData = await readJsonSafe(statusRes);
         if (!statusRes.ok) {
@@ -2834,10 +2851,10 @@ export default function App() {
                 <label>
                   Generator
                   <select value={generator} onChange={(e) => setGenerator(e.target.value)}>
-                    <option>Suno</option>
-                    <option>Mureka Upload</option>
-                    <option>Udio</option>
-                    <option>ElevenLabs</option>
+                    <option value="suno">Suno</option>
+                    <option value="mureka">Mureka Upload</option>
+                    <option value="udio">Udio</option>
+                    <option value="elevenlabs">ElevenLabs</option>
                   </select>
                 </label>
 
