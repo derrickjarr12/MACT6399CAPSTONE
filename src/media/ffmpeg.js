@@ -10,6 +10,11 @@ function parseBoolean(value, fallback = false) {
   return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
 }
 
+function parseImageSize(value, fallback) {
+  const candidate = String(value || '').trim();
+  return /^\d{2,5}x\d{2,5}$/i.test(candidate) ? candidate : fallback;
+}
+
 function getFfmpegFeatureConfig() {
   const enabled = parseBoolean(process.env.FFMPEG_ENABLED, false);
   const ffmpegBin = String(process.env.FFMPEG_BIN || 'ffmpeg').trim() || 'ffmpeg';
@@ -29,6 +34,11 @@ function getFfmpegFeatureConfig() {
   const exportBitrate = String(process.env.FFMPEG_EXPORT_BITRATE || '192k').trim() || '192k';
   const maxInputMbRaw = Number(process.env.FFMPEG_MAX_INPUT_MB || 30);
   const maxInputMb = Number.isFinite(maxInputMbRaw) && maxInputMbRaw > 1 ? maxInputMbRaw : 30;
+  const visualEnabled = parseBoolean(process.env.FFMPEG_VISUAL_ARTIFACTS_ENABLED, false);
+  const visualWaveformEnabled = parseBoolean(process.env.FFMPEG_VISUAL_WAVEFORM_ENABLED, true);
+  const visualSpectrogramEnabled = parseBoolean(process.env.FFMPEG_VISUAL_SPECTROGRAM_ENABLED, true);
+  const waveformSize = parseImageSize(process.env.FFMPEG_WAVEFORM_SIZE, '1200x240');
+  const spectrogramSize = parseImageSize(process.env.FFMPEG_SPECTROGRAM_SIZE, '1280x720');
 
   return {
     enabled,
@@ -47,6 +57,13 @@ function getFfmpegFeatureConfig() {
       enabled: exportEnabled,
       format: exportFormat,
       bitrate: exportBitrate
+    },
+    visual: {
+      enabled: visualEnabled,
+      waveformEnabled: visualWaveformEnabled,
+      spectrogramEnabled: visualSpectrogramEnabled,
+      waveformSize,
+      spectrogramSize
     }
   };
 }
@@ -183,6 +200,7 @@ function extensionToMime(extension) {
   if (extension === 'mp3') return 'audio/mpeg';
   if (extension === 'wav') return 'audio/wav';
   if (extension === 'flac') return 'audio/flac';
+  if (extension === 'png') return 'image/png';
   return 'application/octet-stream';
 }
 
@@ -431,6 +449,138 @@ async function postprocessGeneratedAudioExport(sourceAudio) {
   }
 }
 
+async function generateAudioVisualArtifacts(sourceAudio) {
+  const cfg = getFfmpegFeatureConfig();
+  const response = {
+    applied: false,
+    skipped: true,
+    reason: 'ffmpeg_visual_artifacts_disabled'
+  };
+
+  if (!cfg.enabled || !cfg.visual.enabled) {
+    return response;
+  }
+
+  if (typeof sourceAudio !== 'string' || !sourceAudio.trim()) {
+    return {
+      ...response,
+      reason: 'no_source_audio_url'
+    };
+  }
+
+  const source = sourceAudio.trim();
+  let parsed;
+  let sourceType = 'unknown';
+  const maxBytes = Math.floor(cfg.maxInputMb * 1024 * 1024);
+
+  if (source.startsWith('data:audio/')) {
+    parsed = parseDataAudioUri(source);
+    sourceType = 'data_uri';
+    if (!parsed) {
+      return {
+        ...response,
+        reason: 'invalid_data_audio_uri'
+      };
+    }
+  } else if (source.startsWith('http://') || source.startsWith('https://')) {
+    const downloaded = await downloadAudioUrlToBuffer(source, maxBytes, cfg.timeoutMs);
+    sourceType = 'remote_url';
+    if (!downloaded.ok) {
+      return {
+        ...response,
+        reason: 'source_download_failed',
+        error: downloaded.error
+      };
+    }
+    parsed = {
+      mimeType: downloaded.mimeType,
+      buffer: downloaded.buffer
+    };
+  } else {
+    return {
+      ...response,
+      reason: 'unsupported_source_type'
+    };
+  }
+
+  const tmpPrefix = `saion-ffmpeg-visual-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
+  const inputExt = mimeToExtension(parsed.mimeType);
+  const inputPath = path.join(os.tmpdir(), `${tmpPrefix}-input.${inputExt}`);
+  const waveformPath = path.join(os.tmpdir(), `${tmpPrefix}-waveform.png`);
+  const spectrogramPath = path.join(os.tmpdir(), `${tmpPrefix}-spectrogram.png`);
+
+  try {
+    await fs.writeFile(inputPath, parsed.buffer);
+
+    let waveform = null;
+    let spectrogram = null;
+
+    if (cfg.visual.waveformEnabled) {
+      const waveformArgs = [
+        '-y',
+        '-i', inputPath,
+        '-filter_complex', `aformat=channel_layouts=mono,showwavespic=s=${cfg.visual.waveformSize}:colors=0x4fdcff`,
+        '-frames:v', '1',
+        waveformPath
+      ];
+      const waveformRun = await runFfmpegCommand(cfg.ffmpegBin, waveformArgs, cfg.timeoutMs);
+      if (waveformRun.ok) {
+        const stats = await fs.stat(waveformPath);
+        waveform = {
+          path: waveformPath,
+          mimeType: 'image/png',
+          sizeBytes: stats.size,
+          resolution: cfg.visual.waveformSize
+        };
+      }
+    }
+
+    if (cfg.visual.spectrogramEnabled) {
+      const spectrogramArgs = [
+        '-y',
+        '-i', inputPath,
+        '-lavfi', `showspectrumpic=s=${cfg.visual.spectrogramSize}:legend=disabled:color=rainbow`,
+        '-frames:v', '1',
+        spectrogramPath
+      ];
+      const spectrogramRun = await runFfmpegCommand(cfg.ffmpegBin, spectrogramArgs, cfg.timeoutMs);
+      if (spectrogramRun.ok) {
+        const stats = await fs.stat(spectrogramPath);
+        spectrogram = {
+          path: spectrogramPath,
+          mimeType: 'image/png',
+          sizeBytes: stats.size,
+          resolution: cfg.visual.spectrogramSize
+        };
+      }
+    }
+
+    if (!waveform && !spectrogram) {
+      return {
+        ...response,
+        reason: 'ffmpeg_visual_generation_failed'
+      };
+    }
+
+    return {
+      applied: true,
+      skipped: false,
+      reason: 'visual_artifacts_generated',
+      sourceType,
+      sourceMimeType: parsed.mimeType,
+      waveform,
+      spectrogram,
+      cleanupInputPath: inputPath
+    };
+  } catch (error) {
+    return {
+      ...response,
+      reason: 'ffmpeg_visual_exception',
+      error: error.message
+    };
+  }
+}
+
 function getFfmpegCapabilities() {
   const cfg = getFfmpegFeatureConfig();
   return {
@@ -449,6 +599,13 @@ function getFfmpegCapabilities() {
       exportPostprocessEnabled: cfg.enabled && cfg.export.enabled,
       exportFormat: cfg.export.format,
       exportBitrate: cfg.export.bitrate
+    },
+    phase2c: {
+      visualArtifactsEnabled: cfg.enabled && cfg.visual.enabled,
+      waveformEnabled: cfg.visual.waveformEnabled,
+      spectrogramEnabled: cfg.visual.spectrogramEnabled,
+      waveformSize: cfg.visual.waveformSize,
+      spectrogramSize: cfg.visual.spectrogramSize
     }
   };
 }
@@ -458,5 +615,6 @@ module.exports = {
   probeFfmpegBinary,
   getFfmpegCapabilities,
   preprocessSourceAudioPayload,
-  postprocessGeneratedAudioExport
+  postprocessGeneratedAudioExport,
+  generateAudioVisualArtifacts
 };

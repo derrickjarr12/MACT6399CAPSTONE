@@ -30,7 +30,8 @@ const {
   probeFfmpegBinary,
   getFfmpegCapabilities,
   preprocessSourceAudioPayload,
-  postprocessGeneratedAudioExport
+  postprocessGeneratedAudioExport,
+  generateAudioVisualArtifacts
 } = require('./media/ffmpeg');
 
 // --- Express server setup ---
@@ -1218,6 +1219,72 @@ app.get('/api/media/ffmpeg/artifacts/:artifactId', async (req, res) => {
   } catch {
     mediaArtifactStore.delete(artifactId);
     res.status(404).json({ error: 'artifact file unavailable' });
+  }
+});
+
+app.post('/api/media/ffmpeg/visualize', async (req, res) => {
+  try {
+    const sourceAudio = typeof req.body?.audioUrl === 'string' ? req.body.audioUrl : '';
+    if (!sourceAudio.trim()) {
+      res.status(400).json({ error: 'audioUrl is required and must be a string.' });
+      return;
+    }
+
+    const visualResult = await generateAudioVisualArtifacts(sourceAudio);
+    const metadata = {
+      applied: visualResult.applied,
+      skipped: visualResult.skipped,
+      reason: visualResult.reason,
+      ...(visualResult.sourceType ? { sourceType: visualResult.sourceType } : {}),
+      ...(visualResult.sourceMimeType ? { sourceMimeType: visualResult.sourceMimeType } : {}),
+      ...(visualResult.error ? { error: visualResult.error } : {})
+    };
+
+    const artifacts = {};
+
+    if (visualResult.waveform && visualResult.waveform.path) {
+      const waveformId = registerMediaArtifact({
+        filePath: visualResult.waveform.path,
+        mimeType: visualResult.waveform.mimeType,
+        extension: 'png'
+      });
+      artifacts.waveform = {
+        artifactId: waveformId,
+        artifactUrl: `/api/media/ffmpeg/artifacts/${waveformId}`,
+        mimeType: visualResult.waveform.mimeType,
+        sizeBytes: visualResult.waveform.sizeBytes,
+        resolution: visualResult.waveform.resolution
+      };
+    }
+
+    if (visualResult.spectrogram && visualResult.spectrogram.path) {
+      const spectrogramId = registerMediaArtifact({
+        filePath: visualResult.spectrogram.path,
+        mimeType: visualResult.spectrogram.mimeType,
+        extension: 'png'
+      });
+      artifacts.spectrogram = {
+        artifactId: spectrogramId,
+        artifactUrl: `/api/media/ffmpeg/artifacts/${spectrogramId}`,
+        mimeType: visualResult.spectrogram.mimeType,
+        sizeBytes: visualResult.spectrogram.sizeBytes,
+        resolution: visualResult.spectrogram.resolution
+      };
+    }
+
+    if (visualResult.cleanupInputPath) {
+      fs.promises.unlink(visualResult.cleanupInputPath).catch(() => {});
+    }
+
+    res.status(visualResult.applied ? 200 : 202).json({
+      ok: visualResult.applied,
+      artifacts,
+      _pnf: {
+        ffmpegVisual: metadata
+      }
+    });
+  } catch (error) {
+    sendInternalServerError(res, error, 'FFmpeg visualization request failed.');
   }
 });
 
