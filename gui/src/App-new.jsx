@@ -378,6 +378,9 @@ function buildSessionSummaryText(payload = {}) {
     `- Before Audio: ${payload.beforeAudio ? "Attached/Linked" : "Not set"}`,
     `- After Audio: ${payload.afterAudio ? "Attached/Linked" : "Not set"}`,
     "",
+    "GENERAL PROMPT",
+    payload.generalPrompt || "(none)",
+    "",
     "PROMPT FINE-TUNE",
     payload.promptFineTune || "(none)",
     "",
@@ -817,6 +820,7 @@ const INITIAL_FX_CONTROLS = {
   delay: 0
 };
 
+const GENERAL_PROMPT_WORD_LIMIT = 180;
 const PROMPT_FINE_TUNE_WORD_LIMIT = 100;
 
 const FX_CONTROL_PARAMS = [
@@ -970,6 +974,7 @@ export default function App() {
     }, 4200);
     return () => window.clearTimeout(timer);
   }, [transportNotice]);
+  const [generalPrompt, setGeneralPrompt] = useState("");
   const [promptFineTune, setPromptFineTune] = useState("");
   const [hasPerformancePromptSignal, setHasPerformancePromptSignal] = useState(false);
   const [beforeAudio, setBeforeAudio] = useState("");
@@ -2017,18 +2022,24 @@ export default function App() {
     vocalPreset
   };
 
-  const generatedPromptRaw = useMemo(() => buildPrompt(effectiveSettings, context, effectiveFxControls, promptFineTune), [effectiveSettings, tempo, timeSignature, emotionPreset, vocalPreset, effectiveFxControls, promptFineTune]);
+  const generatedPromptRaw = useMemo(() => buildPrompt(effectiveSettings, context, effectiveFxControls, generalPrompt), [effectiveSettings, tempo, timeSignature, emotionPreset, vocalPreset, effectiveFxControls, generalPrompt]);
   const generatedPrompt = hasPerformancePromptSignal ? generatedPromptRaw : "";
   const generatedNotation = useMemo(() => buildNotation(effectiveSettings, context, effectiveFxControls), [effectiveSettings, tempo, timeSignature, emotionPreset, vocalPreset, effectiveFxControls]);
   const originalNotation = useMemo(() => buildNotation(originalSettings, context, effectiveFxControls), [originalSettings, tempo, timeSignature, emotionPreset, vocalPreset, effectiveFxControls]);
   const notationWithLocalSettings = useMemo(() => {
-    return [`GENERATOR:${generator.toUpperCase()}`, generatedNotation].join("\n");
-  }, [generator, generatedNotation]);
+    const notationFineTune = promptFineTune.trim();
+    return [
+      `GENERATOR:${generator.toUpperCase()}`,
+      generatedNotation,
+      notationFineTune ? `FINE_TUNE_NOTATION:${notationFineTune.replace(/\s+/g, " ")}` : null
+    ].filter(Boolean).join("\n");
+  }, [generator, generatedNotation, promptFineTune]);
 
   const buildSessionPayload = () => ({
     title: sessionTitle || "Untitled Session",
+    generalPrompt,
     promptFineTune,
-    originalPrompt: promptFineTune,
+    originalPrompt: generalPrompt,
     generatedPrompt,
     notation: notationWithLocalSettings,
     settings: {
@@ -2078,7 +2089,8 @@ export default function App() {
     }
 
     setSessionTitle(session.title || "Song Idea 1");
-    setPromptFineTune(enforceWordLimit(session.promptFineTune || session.originalPrompt || "", PROMPT_FINE_TUNE_WORD_LIMIT));
+    setGeneralPrompt(enforceWordLimit(session.generalPrompt || "", GENERAL_PROMPT_WORD_LIMIT));
+    setPromptFineTune(enforceWordLimit(session.promptFineTune || "", PROMPT_FINE_TUNE_WORD_LIMIT));
     setHasPerformancePromptSignal(true);
     const restoredBeforeAudio = (() => {
       if (session.beforeAudio && session.beforeAudio.startsWith("blob:") && session.beforeAudioDataUrl) {
@@ -2146,6 +2158,10 @@ export default function App() {
     setPromptFineTune(enforceWordLimit(value, PROMPT_FINE_TUNE_WORD_LIMIT));
   };
 
+  const handleGeneralPromptChange = (value) => {
+    setGeneralPrompt(enforceWordLimit(value, GENERAL_PROMPT_WORD_LIMIT));
+  };
+
   const handleGenerateAudio = async () => {
     if (isGenerating) return;
 
@@ -2187,6 +2203,10 @@ export default function App() {
         typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
           ? crypto.randomUUID()
           : `req-${Date.now()}`;
+
+      if (!promptToSend) {
+        throw new Error("Add text in General Prompt or move Performance dials before generating.");
+      }
 
       const sourcePayload = hasSourceAudio
         ? {
@@ -2622,7 +2642,19 @@ export default function App() {
                   </div>
 
                   <label>
-                    Generated Prompt
+                    General Prompt (Text)
+                    <textarea
+                      value={generalPrompt}
+                      onChange={(e) => handleGeneralPromptChange(e.target.value)}
+                      placeholder="Hybrid prompt input: dial-driven performance + optional text notes (max 180 words)."
+                    />
+                    <small>
+                      This is a hybrid prompt field. It combines with Performance-page dial context to build the generation prompt, and also accepts your own text notes.
+                    </small>
+                  </label>
+
+                  <label>
+                    Generated Prompt Preview (Performance)
                     <textarea
                       value={hasPerformancePromptSignal ? generatedPrompt : ""}
                       readOnly
@@ -2636,16 +2668,14 @@ export default function App() {
                   </label>
 
                   <label>
-                    Prompt Fine-Tune (Optional)
+                    Prompt Fine-Tune (Music Notation)
                     <textarea
-                      value={hasPerformancePromptSignal ? promptFineTune : ""}
+                      value={promptFineTune}
                       onChange={(e) => handlePromptFineTuneChange(e.target.value)}
-                      placeholder="Optional add-on wording (max 100 words)."
+                      placeholder="Optional notation/style refinement (max 100 words)."
                     />
                     <small>
-                      {hasPerformancePromptSignal
-                        ? "This text is appended to the dial-driven prompt when generating audio."
-                        : "Move Performance dials first, then add optional fine-tune wording."}
+                      This field is notation-focused refinement and is appended to exported notation context.
                     </small>
                   </label>
 

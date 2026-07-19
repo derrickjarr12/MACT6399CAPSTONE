@@ -22,6 +22,7 @@ This documentation covers:
 5. [05-testing-and-qa.md](./05-testing-and-qa.md)
 6. [06-release-and-roadmap.md](./06-release-and-roadmap.md)
 7. [07-ffmpeg-integration.md](./07-ffmpeg-integration.md)
+8. [08-elevenlabs-ui-instructions.md](./08-elevenlabs-ui-instructions.md)
 
 ## Primary Source Files (Code + Existing Docs)
 
