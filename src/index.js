@@ -25,6 +25,11 @@ const {
 } = require("./provider_contract_v1");
 const { loadEnv, getConfig } = require("./config/env-loader");
 const { validateStartup } = require("./config/validate-startup");
+const {
+  getFfmpegFeatureConfig,
+  probeFfmpegBinary,
+  getFfmpegCapabilities
+} = require('./media/ffmpeg');
 
 // --- Express server setup ---
 const app = express();
@@ -1052,6 +1057,32 @@ app.get('/api/mysql/health', async (req, res) => {
   }
 });
 
+app.get('/api/media/ffmpeg/health', async (req, res) => {
+  const cfg = getFfmpegFeatureConfig();
+
+  try {
+    const probe = await probeFfmpegBinary();
+    const ready = Boolean(cfg.enabled && probe.binaries.ffmpeg.ok && probe.binaries.ffprobe.ok);
+
+    res.status(ready ? 200 : 503).json({
+      ok: ready,
+      enabled: cfg.enabled,
+      timeoutMs: cfg.timeoutMs,
+      binaries: probe.binaries,
+      capabilities: getFfmpegCapabilities(),
+      mode: 'phase1_health_only'
+    });
+  } catch (error) {
+    res.status(500).json({
+      ok: false,
+      enabled: cfg.enabled,
+      error: error.message,
+      capabilities: getFfmpegCapabilities(),
+      mode: 'phase1_health_only'
+    });
+  }
+});
+
 // Asset texture presets endpoint - serves CDN URLs with local fallback
 app.get('/api/assets/texture-presets', (req, res) => {
   const CDN_BASE = 'https://saion-assets.nyc3.cdn.digitaloceanspaces.com/saion-folder/';
@@ -1168,6 +1199,8 @@ if (fs.existsSync(guiDist)) {
 
 app.listen(PORT, () => {
   console.log(`Server running at http://localhost:${PORT}`);
+  const ffmpegCfg = getFfmpegFeatureConfig();
+  console.log(`FFmpeg feature: ${ffmpegCfg.enabled ? 'enabled' : 'disabled'} (phase 1)`);
 });
 
 module.exports = {
@@ -1191,5 +1224,8 @@ module.exports = {
   normalizeProviderResult,
   loadEnv,
   getConfig,
-  validateStartup
+  validateStartup,
+  getFfmpegFeatureConfig,
+  probeFfmpegBinary,
+  getFfmpegCapabilities
 };
