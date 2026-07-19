@@ -82,6 +82,14 @@ Purpose:
 
 - Provide texture preset metadata for GUI visualization assets
 
+### FFmpeg Media Endpoints
+
+Current media-processing endpoints include FFmpeg health, artifact retrieval, and visualization.
+
+See full details in:
+
+- [07-ffmpeg-integration.md](./07-ffmpeg-integration.md)
+
 ## Canonical Request/Response Contract
 
 Contract implementation: ../../../src/provider_contract_v1.js

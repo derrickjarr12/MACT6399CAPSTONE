@@ -21,11 +21,13 @@ This documentation covers:
 4. [04-environments-and-deployment.md](./04-environments-and-deployment.md)
 5. [05-testing-and-qa.md](./05-testing-and-qa.md)
 6. [06-release-and-roadmap.md](./06-release-and-roadmap.md)
+7. [07-ffmpeg-integration.md](./07-ffmpeg-integration.md)
 
 ## Primary Source Files (Code + Existing Docs)
 
 - Root overview: ../../README.md
 - Runtime + server entry: ../../../src/index.js
+- FFmpeg media module: ../../../src/media/ffmpeg.js
 - Provider contract implementation: ../../../src/provider_contract_v1.js
 - ARLNS provider contract spec: ../../../ARLNS/spec/provider-contract-v1.md
 - ARLNS product/spec notes: ../../../ARLNS/spec/pnf-aims.spec.md
