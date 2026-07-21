@@ -136,14 +136,6 @@ Flow for each adapter:
 - Never expose raw secrets in client logs.
 - Store provider-specific API responses in `rawProviderResponse` only after removing sensitive fields.
 
-## Persistence And Restart Requirements
-
-- Each provider request should be assigned a stable internal `requestId` before dispatch.
-- Each provider response should preserve the provider-specific `jobId` when the provider is asynchronous.
-- The adapter or backend should persist `requestId`, `providerJobId`, `normalizedStatus`, `audioUrl`, and compare context so the request can be recovered after a restart.
-- MySQL is the preferred persistence layer for the current implementation; if it is not configured, in-memory fallback is acceptable for local development only.
-- Status polling should use the provider `jobId`, while application lookup should use the internal `requestId`.
-
 ## Routing Addendum (Hybrid + No-Code Fallback)
 
 Current implementation supports routing modes controlled by environment configuration:
@@ -173,11 +165,34 @@ When no-code execution is async, completion should be posted to backend callback
 
 - `POST /api/no-code/callback`
 
+Additional accepted callback endpoints:
+
+- `POST /api/provider/callback`
+- `POST /api/apiframe/callback`
+
 Expected callback payload fields:
 
 - `requestId` (required)
 - `generator` (recommended)
 - `statusCode` (recommended)
 - `response` or `payload` with normalized provider outcome
+
+Recommended payload shape:
+
+```json
+{
+  "requestId": "req_123",
+  "generator": "elevenlabs",
+  "jobId": "job_456",
+  "statusCode": 200,
+  "response": {
+    "status": "completed",
+    "audioUrl": "https://example.com/output.mp3"
+  },
+  "metadata": {
+    "compareContext": {}
+  }
+}
+```
 
 Callback authentication should use shared secret token (`NOCODE_CALLBACK_TOKEN`) sent as `x-callback-token` or bearer authorization.

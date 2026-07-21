@@ -63,6 +63,65 @@ Purpose:
 - Retrieve request record by internal requestId
 - Support session continuity and lookup independent of provider job ID
 
+### Live Request Stream (SSE)
+
+- GET /api/provider/stream/:requestId
+- GET /api/apiframe/stream/:requestId
+
+Purpose:
+
+- Open a live Server-Sent Events stream for one requestId
+- Receive immediate updates when callback or polling writes new state
+- Emit request snapshot on connect and incremental updates afterward
+
+SSE event names:
+
+- stream-open
+- request-snapshot
+- request-updated
+- heartbeat
+
+### Provider Callback Ingest
+
+- POST /api/provider/callback
+- POST /api/no-code/callback
+- POST /api/apiframe/callback
+
+Purpose:
+
+- Accept async completion/progress callbacks from providers or no-code orchestrators
+- Upsert request state by internal requestId
+- Trigger live stream updates for connected clients
+
+Callback auth:
+
+- If NOCODE_CALLBACK_TOKEN or PROVIDER_CALLBACK_TOKEN is configured, callback must include token in one of:
+  - x-callback-token header
+  - Authorization: Bearer TOKEN_VALUE
+  - callbackToken in query/body
+
+Callback signature verification (ElevenLabs):
+
+- SAION records callback audit logs with signature metadata (`[callback-audit] ...`).
+- If `ELEVENLABS_REQUIRE_SIGNATURE=true`, ElevenLabs callbacks are rejected unless signature validation succeeds.
+- Signature validation uses `ELEVENLABS_WEBHOOK_SIGNING_SECRET` and callback raw body.
+- Supported signature header aliases include `x-elevenlabs-signature` and `elevenlabs-signature`.
+
+Minimal callback payload:
+
+```json
+{
+  "requestId": "req_123",
+  "generator": "elevenlabs",
+  "jobId": "job_456",
+  "statusCode": 200,
+  "response": {
+    "status": "completed",
+    "audioUrl": "https://..."
+  }
+}
+```
+
 ### Health
 
 - GET /api/provider/health

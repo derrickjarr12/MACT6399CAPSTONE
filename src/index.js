@@ -6,6 +6,7 @@
 const express = require('express');
 const crypto = require('crypto');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const mysql = require('mysql2/promise');
 
@@ -40,6 +41,7 @@ const PORT = process.env.PORT || 3000;
 
 const requestStore = new Map();
 const mediaArtifactStore = new Map();
+const requestSubscriptions = new Map();
 let mysqlPool = null;
 let mysqlTable = 'pnf_request_jobs';
 let mysqlInitPromise = null;
@@ -72,11 +74,110 @@ function registerMediaArtifact({ filePath, mimeType, extension, ttlMs = MEDIA_AR
   return artifactId;
 }
 
-app.use(express.json({ limit: '25mb' }));
+function extensionFromMimeType(mimeType = '') {
+  const normalized = String(mimeType || '').toLowerCase();
+  if (normalized.includes('mpeg')) return 'mp3';
+  if (normalized.includes('wav')) return 'wav';
+  if (normalized.includes('ogg')) return 'ogg';
+  if (normalized.includes('flac')) return 'flac';
+  return 'bin';
+}
+
+function toAbsoluteUrl(req, maybePath) {
+  const value = String(maybePath || '').trim();
+  if (!value) return '';
+  if (/^https?:\/\//i.test(value)) return value;
+
+  const origin = `${req.protocol}://${req.get('host')}`;
+  return value.startsWith('/') ? `${origin}${value}` : `${origin}/${value}`;
+}
+
+function extractBearerToken(authorizationHeader = '') {
+  if (!authorizationHeader || typeof authorizationHeader !== 'string') return '';
+  const match = authorizationHeader.match(/^Bearer\s+(.+)$/i);
+  return match ? String(match[1] || '').trim() : '';
+}
+
+function getCallbackTokenFromRequest(req) {
+  return String(
+    req.headers['x-callback-token'] ||
+    extractBearerToken(req.headers.authorization || '') ||
+    req.query.callbackToken ||
+    req.body?.callbackToken ||
+    ''
+  ).trim();
+}
+
+function isCallbackAuthorized(req) {
+  const expectedToken = String(
+    process.env.NOCODE_CALLBACK_TOKEN ||
+    process.env.PROVIDER_CALLBACK_TOKEN ||
+    ''
+  ).trim();
+
+  if (!expectedToken) {
+    return { ok: true, tokenRequired: false };
+  }
+
+  const providedToken = getCallbackTokenFromRequest(req);
+  return {
+    ok: Boolean(providedToken && providedToken === expectedToken),
+    tokenRequired: true
+  };
+}
+
+function toSseData(payload) {
+  return `data: ${JSON.stringify(payload)}\n\n`;
+}
+
+function subscribeRequestStream(requestId, res) {
+  const key = String(requestId || '').trim();
+  if (!key) return;
+
+  const subscribers = requestSubscriptions.get(key) || new Set();
+  subscribers.add(res);
+  requestSubscriptions.set(key, subscribers);
+}
+
+function unsubscribeRequestStream(requestId, res) {
+  const key = String(requestId || '').trim();
+  if (!key) return;
+
+  const subscribers = requestSubscriptions.get(key);
+  if (!subscribers) return;
+
+  subscribers.delete(res);
+  if (subscribers.size === 0) {
+    requestSubscriptions.delete(key);
+  }
+}
+
+function publishRequestUpdate(requestId, eventName, payload) {
+  const key = String(requestId || '').trim();
+  if (!key) return;
+
+  const subscribers = requestSubscriptions.get(key);
+  if (!subscribers || subscribers.size === 0) return;
+
+  const eventLine = eventName ? `event: ${eventName}\n` : '';
+  const body = `${eventLine}${toSseData(payload)}`;
+
+  for (const subscriber of subscribers) {
+    if (subscriber.writableEnded || subscriber.destroyed) continue;
+    subscriber.write(body);
+  }
+}
+
+app.use(express.json({
+  limit: '25mb',
+  verify: (req, _res, buf) => {
+    req.rawBody = Buffer.from(buf || []).toString('utf8');
+  }
+}));
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-api-key');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-api-key, x-callback-token, x-elevenlabs-signature, x-elevenlabs-timestamp');
   if (req.method === 'OPTIONS') {
     res.sendStatus(204);
     return;
@@ -623,6 +724,210 @@ function extractErrorMessage(payload) {
   return direct || '';
 }
 
+function resolveCallbackEnvelope(body = {}) {
+  const raw = body && typeof body === 'object' ? body : {};
+  const wrappedResponse = raw.response && typeof raw.response === 'object' ? raw.response : null;
+  const wrappedPayload = raw.payload && typeof raw.payload === 'object' ? raw.payload : null;
+  const data = wrappedResponse || wrappedPayload || raw;
+
+  const requestId = getFirstString(raw, ['requestId']) || getFirstString(data, ['requestId', 'request_id']);
+  const generator = getFirstString(raw, ['generator', 'provider']) || getFirstString(data, ['generator', 'provider']) || 'elevenlabs';
+  const providerJobId =
+    getFirstString(raw, ['providerJobId', 'jobId', 'job_id']) ||
+    extractJobId(data) ||
+    extractJobId(raw);
+
+  const statusCodeRaw = Number(raw.statusCode ?? raw.status ?? raw.httpStatus ?? 200);
+  const statusCode = Number.isFinite(statusCodeRaw) ? statusCodeRaw : 200;
+
+  return {
+    requestId,
+    generator,
+    providerJobId,
+    statusCode,
+    responseBody: data,
+    metadata: raw.metadata && typeof raw.metadata === 'object' ? raw.metadata : null
+  };
+}
+
+function parseSignatureParts(signatureHeader = '') {
+  if (!signatureHeader || typeof signatureHeader !== 'string') return [];
+  return signatureHeader
+    .split(',')
+    .map((part) => String(part || '').trim())
+    .filter(Boolean)
+    .map((part) => {
+      const eqIndex = part.indexOf('=');
+      if (eqIndex === -1) {
+        return { key: '', value: part };
+      }
+      return {
+        key: part.slice(0, eqIndex).trim().toLowerCase(),
+        value: part.slice(eqIndex + 1).trim()
+      };
+    });
+}
+
+function getSignatureMetadata(req) {
+  const signatureHeader = String(
+    req.headers['x-elevenlabs-signature'] ||
+    req.headers['elevenlabs-signature'] ||
+    req.headers['x-signature'] ||
+    req.headers.signature ||
+    ''
+  ).trim();
+
+  const timestamp = String(
+    req.headers['x-elevenlabs-timestamp'] ||
+    req.headers['elevenlabs-timestamp'] ||
+    req.headers['x-webhook-timestamp'] ||
+    req.headers['webhook-timestamp'] ||
+    ''
+  ).trim();
+
+  const parts = parseSignatureParts(signatureHeader);
+  const candidateSignatures = new Set();
+  for (const part of parts) {
+    if (!part.value) continue;
+    candidateSignatures.add(part.value);
+  }
+
+  const directHeaderParts = signatureHeader
+    .split(/[\s,]+/)
+    .map((value) => String(value || '').trim())
+    .filter(Boolean);
+  for (const value of directHeaderParts) {
+    if (value.includes('=')) {
+      const parsed = parseSignatureParts(value);
+      for (const item of parsed) {
+        if (item.value) candidateSignatures.add(item.value);
+      }
+      continue;
+    }
+    candidateSignatures.add(value);
+  }
+
+  return {
+    signatureHeaderPresent: Boolean(signatureHeader),
+    signatureHeader,
+    timestampPresent: Boolean(timestamp),
+    timestamp,
+    candidateSignatures: [...candidateSignatures]
+  };
+}
+
+function buildExpectedSignatureCandidates({ secret, timestamp, rawBody }) {
+  if (!secret) return [];
+
+  const body = String(rawBody || '');
+  const baseDigest = crypto.createHmac('sha256', secret).update(body).digest('hex');
+  const candidates = new Set([baseDigest, `sha256=${baseDigest}`]);
+
+  if (timestamp) {
+    const tsDigest = crypto.createHmac('sha256', secret).update(`${timestamp}.${body}`).digest('hex');
+    candidates.add(tsDigest);
+    candidates.add(`sha256=${tsDigest}`);
+  }
+
+  return [...candidates];
+}
+
+function verifyElevenLabsCallbackSignature(req, generator) {
+  const normalizedGenerator = String(generator || '').toLowerCase();
+  const shouldEvaluate =
+    normalizedGenerator === 'elevenlabs' ||
+    Boolean(req.headers['x-elevenlabs-signature']) ||
+    Boolean(req.headers['elevenlabs-signature']);
+
+  const strictMode = String(process.env.ELEVENLABS_REQUIRE_SIGNATURE || '').toLowerCase() === 'true';
+  const signingSecret = String(process.env.ELEVENLABS_WEBHOOK_SIGNING_SECRET || '').trim();
+
+  if (!shouldEvaluate) {
+    return {
+      evaluated: false,
+      valid: true,
+      strictMode,
+      reason: 'not_elevenlabs_callback'
+    };
+  }
+
+  const signatureMeta = getSignatureMetadata(req);
+  if (!signatureMeta.signatureHeaderPresent) {
+    return {
+      evaluated: true,
+      valid: !strictMode,
+      strictMode,
+      reason: 'missing_signature_header',
+      signatureMeta
+    };
+  }
+
+  if (!signingSecret) {
+    return {
+      evaluated: true,
+      valid: !strictMode,
+      strictMode,
+      reason: 'missing_signing_secret',
+      signatureMeta
+    };
+  }
+
+  const rawBody = typeof req.rawBody === 'string' ? req.rawBody : JSON.stringify(req.body || {});
+  const expectedCandidates = buildExpectedSignatureCandidates({
+    secret: signingSecret,
+    timestamp: signatureMeta.timestamp,
+    rawBody
+  });
+
+  const provided = signatureMeta.candidateSignatures;
+  const matched = provided.some((value) => expectedCandidates.includes(value));
+
+  return {
+    evaluated: true,
+    valid: matched,
+    strictMode,
+    reason: matched ? 'signature_valid' : 'signature_mismatch',
+    signatureMeta: {
+      ...signatureMeta,
+      candidateSignatures: provided
+    }
+  };
+}
+
+function logCallbackAudit(req, envelope, authResult, signatureResult) {
+  const audit = {
+    ts: new Date().toISOString(),
+    event: 'provider_callback',
+    route: req.originalUrl || req.url,
+    method: req.method,
+    ip: req.ip,
+    userAgent: req.headers['user-agent'] || '',
+    requestId: envelope.requestId || '',
+    generator: String(envelope.generator || '').toLowerCase(),
+    providerJobId: envelope.providerJobId || '',
+    upstreamStatus: envelope.statusCode,
+    auth: {
+      tokenRequired: Boolean(authResult?.tokenRequired),
+      authorized: Boolean(authResult?.ok)
+    },
+    signature: {
+      evaluated: Boolean(signatureResult?.evaluated),
+      valid: Boolean(signatureResult?.valid),
+      strictMode: Boolean(signatureResult?.strictMode),
+      reason: signatureResult?.reason || '',
+      signatureHeaderPresent: Boolean(signatureResult?.signatureMeta?.signatureHeaderPresent),
+      timestampPresent: Boolean(signatureResult?.signatureMeta?.timestampPresent)
+    }
+  };
+
+  const auditLine = `[callback-audit] ${JSON.stringify(audit)}`;
+  if (signatureResult && signatureResult.evaluated && !signatureResult.valid) {
+    console.warn(auditLine);
+    return;
+  }
+  console.info(auditLine);
+}
+
 function statusLabel(status) {
   if (status === 200) return 'ok';
   if (status === 401) return 'unauthorized';
@@ -719,6 +1024,16 @@ async function upsertRequestRecord({
   };
 
   requestStore.set(requestId, record);
+  publishRequestUpdate(requestId, 'request-updated', {
+    requestId,
+    normalizedStatus: record.normalizedStatus,
+    providerJobId: record.providerJobId,
+    audioUrl: record.audioUrl,
+    upstreamStatus: record.upstreamStatus,
+    updatedAt: record.updatedAt,
+    lastResponse: record.lastResponse
+  });
+
   try {
     await persistRequestRecord(record);
   } catch (error) {
@@ -864,12 +1179,53 @@ app.post(['/api/provider/generate', '/api/apiframe/generate'], async (req, res) 
       pathBuilder: (pathTemplate) => applyPathTokens(pathTemplate, templateTokens)
     });
 
-    const text = await upstreamRes.text();
+    const responseContentType = String(upstreamRes.headers.get('content-type') || '').toLowerCase();
+    const isBinaryAudioResponse = responseContentType.startsWith('audio/');
+
     let data;
-    try {
-      data = text ? JSON.parse(text) : {};
-    } catch {
-      data = { raw: text };
+    if (isBinaryAudioResponse) {
+      const audioBytes = Buffer.from(await upstreamRes.arrayBuffer());
+      const audioMimeType = responseContentType.split(';')[0] || 'audio/mpeg';
+
+      if (upstreamRes.ok && audioBytes.length > 0) {
+        const extension = extensionFromMimeType(audioMimeType);
+        const tempFilePath = path.join(
+          os.tmpdir(),
+          `saion-elevenlabs-music-${Date.now()}-${crypto.randomBytes(6).toString('hex')}.${extension}`
+        );
+        await fs.promises.writeFile(tempFilePath, audioBytes);
+
+        const artifactId = registerMediaArtifact({
+          filePath: tempFilePath,
+          mimeType: audioMimeType,
+          extension
+        });
+
+        const artifactPath = `/api/media/ffmpeg/artifacts/${artifactId}`;
+        data = {
+          status: 'completed',
+          audioUrl: toAbsoluteUrl(req, artifactPath),
+          artifactUrl: toAbsoluteUrl(req, artifactPath),
+          artifactId,
+          mimeType: audioMimeType,
+          bytes: audioBytes.length,
+          source: 'elevenlabs_binary_audio_response'
+        };
+      } else {
+        data = {
+          status: 'failed',
+          error: 'Audio response was empty or upstream request failed.',
+          mimeType: audioMimeType,
+          bytes: audioBytes.length
+        };
+      }
+    } else {
+      const text = await upstreamRes.text();
+      try {
+        data = text ? JSON.parse(text) : {};
+      } catch {
+        data = { raw: text };
+      }
     }
 
     const providerJobId = extractJobId(data);
@@ -881,7 +1237,7 @@ app.post(['/api/provider/generate', '/api/apiframe/generate'], async (req, res) 
     });
 
     let ffmpegExportMeta = null;
-    if (upstreamRes.ok && normalized.audioUrl) {
+    if (upstreamRes.ok && normalized.audioUrl && !isBinaryAudioResponse) {
       const exportResult = await postprocessGeneratedAudioExport(normalized.audioUrl);
       ffmpegExportMeta = {
         applied: exportResult.applied,
@@ -1081,6 +1437,130 @@ app.get(['/api/provider/requests/:requestId', '/api/apiframe/requests/:requestId
   }
 
   res.json(record);
+});
+
+app.get(['/api/provider/stream/:requestId', '/api/apiframe/stream/:requestId'], async (req, res) => {
+  const { requestId } = req.params;
+  if (!requestId) {
+    res.status(400).json({ error: 'requestId is required.' });
+    return;
+  }
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders?.();
+
+  subscribeRequestStream(requestId, res);
+
+  const existing = await readRequestRecord(requestId);
+  res.write(`event: stream-open\n${toSseData({ requestId, hasExistingRecord: Boolean(existing) })}`);
+
+  if (existing) {
+    res.write(`event: request-snapshot\n${toSseData(existing)}`);
+  }
+
+  const heartbeat = setInterval(() => {
+    if (res.writableEnded || res.destroyed) {
+      clearInterval(heartbeat);
+      return;
+    }
+    res.write(`event: heartbeat\n${toSseData({ ts: new Date().toISOString() })}`);
+  }, 25000);
+
+  req.on('close', () => {
+    clearInterval(heartbeat);
+    unsubscribeRequestStream(requestId, res);
+  });
+});
+
+app.post(['/api/provider/callback', '/api/no-code/callback', '/api/apiframe/callback'], async (req, res) => {
+  try {
+    const envelope = resolveCallbackEnvelope(req.body || {});
+    const auth = isCallbackAuthorized(req);
+    const signatureResult = verifyElevenLabsCallbackSignature(req, envelope.generator);
+
+    logCallbackAudit(req, envelope, auth, signatureResult);
+
+    if (!auth.ok) {
+      res.status(401).json({
+        error: 'Unauthorized callback request.',
+        _pnf: {
+          http: {
+            status: 401,
+            label: statusLabel(401)
+          }
+        }
+      });
+      return;
+    }
+
+    if (signatureResult.strictMode && signatureResult.evaluated && !signatureResult.valid) {
+      res.status(401).json({
+        error: 'Invalid ElevenLabs callback signature.',
+        _pnf: {
+          http: {
+            status: 401,
+            label: statusLabel(401)
+          }
+        }
+      });
+      return;
+    }
+
+    if (!envelope.requestId) {
+      res.status(400).json({
+        error: 'requestId is required in callback payload.',
+        _pnf: {
+          http: {
+            status: 400,
+            label: statusLabel(400)
+          }
+        }
+      });
+      return;
+    }
+
+    const record = await upsertRequestRecord({
+      requestId: envelope.requestId,
+      generator: envelope.generator,
+      providerJobId: envelope.providerJobId,
+      compareContext: envelope.metadata?.compareContext,
+      prompt: envelope.metadata?.prompt,
+      payload: envelope.metadata?.payload,
+      upstreamStatus: envelope.statusCode,
+      responseBody: envelope.responseBody
+    });
+
+    const normalized = buildNormalizedMetadata({
+      requestId: envelope.requestId,
+      generator: envelope.generator,
+      providerJobId: envelope.providerJobId,
+      payload: envelope.responseBody
+    });
+
+    res.status(200).json({
+      accepted: true,
+      source: 'provider-callback',
+      tokenRequired: auth.tokenRequired,
+      signature: {
+        evaluated: signatureResult.evaluated,
+        valid: signatureResult.valid,
+        strictMode: signatureResult.strictMode,
+        reason: signatureResult.reason
+      },
+      record,
+      _pnf: {
+        ...normalized,
+        http: {
+          status: 200,
+          label: statusLabel(200)
+        }
+      }
+    });
+  } catch (error) {
+    sendInternalServerError(res, error, 'Provider callback processing failed.');
+  }
 });
 
 app.get(['/api/provider/health', '/api/apiframe/health'], (req, res) => {

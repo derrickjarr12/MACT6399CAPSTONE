@@ -214,6 +214,18 @@ FFMPEG_VISUAL_WAVEFORM_ENABLED=true
 FFMPEG_VISUAL_SPECTROGRAM_ENABLED=true
 FFMPEG_WAVEFORM_SIZE=1200x240
 FFMPEG_SPECTROGRAM_SIZE=1280x720
+
+# Optional callback security and auditing
+# Shared callback token accepted in x-callback-token or Authorization Bearer
+NOCODE_CALLBACK_TOKEN=your_shared_callback_token
+# Optional alias recognized by backend
+PROVIDER_CALLBACK_TOKEN=your_shared_callback_token
+
+# ElevenLabs webhook signature verification
+# When true, ElevenLabs callbacks require a valid signature
+ELEVENLABS_REQUIRE_SIGNATURE=false
+# Signing secret used to validate ElevenLabs callback signatures
+ELEVENLABS_WEBHOOK_SIGNING_SECRET=your_elevenlabs_webhook_signing_secret
 ```
 
 ## Troubleshooting

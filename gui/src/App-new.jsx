@@ -222,6 +222,15 @@ async function readJsonSafe(response) {
   }
 }
 
+function parseSseData(rawData) {
+  if (typeof rawData !== "string" || !rawData.trim()) return null;
+  try {
+    return JSON.parse(rawData);
+  } catch {
+    return null;
+  }
+}
+
 function buildNotation(settings, context, fxControls) {
   const eqLow = clampPercent(fxControls.eqLow ?? fxControls.eq ?? 50);
   const eqMid = clampPercent(fxControls.eqMid ?? fxControls.eq ?? 50);
@@ -1005,6 +1014,8 @@ export default function App() {
   const beforeAudioFileInputRef = useRef(null);
   const afterAudioFileInputRef = useRef(null);
   const localAudioUrlsRef = useRef({ before: "", after: "" });
+  const requestStreamRef = useRef(null);
+  const activeRequestIdRef = useRef("");
   const analyserRef = useRef(null);
   const fxNodesRef = useRef(null);
   const fftRef = useRef(new Uint8Array(128));
@@ -1023,6 +1034,14 @@ export default function App() {
   const texturePresets = TEXTURE_PRESETS;
   const [visibleIndices, setVisibleIndices] = useState([]);
   const VISIBLE_PRESETS = 8;
+
+  useEffect(() => () => {
+    if (requestStreamRef.current) {
+      requestStreamRef.current.close();
+      requestStreamRef.current = null;
+    }
+    activeRequestIdRef.current = "";
+  }, []);
 
   // Generate random selection of presets
   const generateRandomPresets = (presetArray) => {
@@ -2204,8 +2223,86 @@ export default function App() {
           ? crypto.randomUUID()
           : `req-${Date.now()}`;
 
+      if (requestStreamRef.current) {
+        requestStreamRef.current.close();
+        requestStreamRef.current = null;
+      }
+      activeRequestIdRef.current = "";
+
+      const liveState = {
+        completed: false,
+        failed: false,
+        failureMessage: ""
+      };
+
+      const applyLiveRecord = (record, successMessage) => {
+        if (!record || typeof record !== "object") return;
+
+        const liveAudio =
+          (typeof record.audioUrl === "string" && record.audioUrl.startsWith("http")
+            ? record.audioUrl
+            : "") || extractAudioUrl(record.lastResponse || record);
+
+        if (liveAudio) {
+          setAfterAudio(liveAudio);
+          setAfterAudioFormat("");
+          setAfterAudioFileName("");
+          setSavedState("AUDIO GENERATED");
+          setTransportStatus("READY GENERATED");
+          setTransportNotice({ tone: "success", message: successMessage });
+          liveState.completed = true;
+          if (requestStreamRef.current) {
+            requestStreamRef.current.close();
+            requestStreamRef.current = null;
+          }
+          activeRequestIdRef.current = "";
+          return;
+        }
+
+        const normalizedStatus = String(
+          record.normalizedStatus || record?._pnf?.normalizedStatus || ""
+        ).toLowerCase();
+
+        if (normalizedStatus === "failed") {
+          liveState.failed = true;
+          liveState.failureMessage =
+            extractApiErrorMessage(record.lastResponse || record) ||
+            "Provider callback reported a failed render.";
+          if (requestStreamRef.current) {
+            requestStreamRef.current.close();
+            requestStreamRef.current = null;
+          }
+          activeRequestIdRef.current = "";
+        }
+      };
+
       if (!promptToSend) {
         throw new Error("Add text in General Prompt or move Performance dials before generating.");
+      }
+
+      if (typeof EventSource !== "undefined") {
+        const streamUrl = `${apiBase}/api/apiframe/stream/${encodeURIComponent(requestId)}`;
+        const stream = new EventSource(streamUrl);
+        requestStreamRef.current = stream;
+        activeRequestIdRef.current = requestId;
+
+        const onLiveRecord = (event) => {
+          const payload = parseSseData(event?.data);
+          if (!payload) return;
+          applyLiveRecord(payload, "Live callback received. Audio is ready.");
+        };
+
+        stream.addEventListener("request-snapshot", onLiveRecord);
+        stream.addEventListener("request-updated", onLiveRecord);
+        stream.onerror = () => {
+          // Keep polling as fallback even if live stream drops.
+          if (!liveState.completed && !liveState.failed) {
+            setTransportNotice({
+              tone: "warning",
+              message: "Live callback stream interrupted. Polling continues."
+            });
+          }
+        };
       }
 
       const sourcePayload = hasSourceAudio
@@ -2258,6 +2355,11 @@ export default function App() {
 
       const immediateAudio = extractAudioUrl(generateData);
       if (immediateAudio) {
+        if (requestStreamRef.current) {
+          requestStreamRef.current.close();
+          requestStreamRef.current = null;
+        }
+        activeRequestIdRef.current = "";
         setAfterAudio(immediateAudio);
         setAfterAudioFormat("");
         setAfterAudioFileName("");
@@ -2274,7 +2376,22 @@ export default function App() {
 
       const maxPolls = 20;
       for (let attempt = 0; attempt < maxPolls; attempt += 1) {
+        if (liveState.completed) {
+          return;
+        }
+        if (liveState.failed) {
+          throw new Error(liveState.failureMessage || "Provider callback reported failure.");
+        }
+
         await new Promise((resolve) => setTimeout(resolve, 3000));
+
+        if (liveState.completed) {
+          return;
+        }
+        if (liveState.failed) {
+          throw new Error(liveState.failureMessage || "Provider callback reported failure.");
+        }
+
         const statusRes = await fetch(
           `${apiBase}/api/apiframe/status/${encodeURIComponent(jobId)}?generator=${encodeURIComponent(generatorId)}&requestId=${encodeURIComponent(requestId)}`
         );
@@ -2285,6 +2402,11 @@ export default function App() {
 
         const polledAudio = extractAudioUrl(statusData);
         if (polledAudio) {
+          if (requestStreamRef.current) {
+            requestStreamRef.current.close();
+            requestStreamRef.current = null;
+          }
+          activeRequestIdRef.current = "";
           setAfterAudio(polledAudio);
           setAfterAudioFormat("");
           setAfterAudioFileName("");
@@ -2305,6 +2427,11 @@ export default function App() {
 
       throw new Error("Generation timed out while polling status.");
     } catch (error) {
+      if (requestStreamRef.current) {
+        requestStreamRef.current.close();
+        requestStreamRef.current = null;
+      }
+      activeRequestIdRef.current = "";
       setSavedState("GENERATION FAILED");
       const userMessage =
         (error && typeof error.uiMessage === "string" && error.uiMessage) ||
