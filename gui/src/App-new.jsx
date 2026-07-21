@@ -327,6 +327,7 @@ function buildPrompt(settings, context, fxControls, userPrompt = "") {
   const trimmedUserPrompt = typeof userPrompt === "string" ? userPrompt.trim() : "";
   const harmonyStyleDescriptor = HARMONY_STYLE_DESCRIPTORS[context.harmonyStyle] || HARMONY_STYLE_DESCRIPTORS["Soft Layered"];
   const detailLevel = context.vocalDetailLevel || "Balanced";
+  const profileSummary = buildProfileSummary(settings, context.emotionPreset, context.vocalPreset);
 
   const baseLines = [
     `Generate a ${context.emotionPreset.toLowerCase()} / ${context.vocalPreset.toLowerCase()} performance at ${context.tempo} BPM in ${context.timeSignature}.`,
@@ -337,6 +338,7 @@ function buildPrompt(settings, context, fxControls, userPrompt = "") {
   const balancedLines = [
     `Intent focus: emotion should feel ${emotionIntent}; cadence should feel ${vocalCadenceIntent}.`,
     `Harmony style: ${harmonyStyleDescriptor}.`,
+    `Performance profile: ${profileSummary}.`,
     `Delivery should feel ${intensityText}, ${vulnerabilityText}, and ${confidenceText}.`,
     `Emotional contour should stay ${emotionWarmthText} with a ${emotionReleaseText} phrase release.`,
     `Overall vocal delivery should be ${deliveryText}.`,
@@ -357,6 +359,22 @@ function buildPrompt(settings, context, fxControls, userPrompt = "") {
       : [...baseLines, ...balancedLines];
 
   return lines.filter(Boolean).join(" ");
+}
+
+function buildProfileSummary(settings, emotionPreset, vocalPreset) {
+  const e = settings?.emotion || {};
+  const v = settings?.vocal || {};
+  const intensity = rangeLabel(e.intensity ?? 0, "subdued", "moderate", "charged");
+  const warmth = rangeLabel(e.warmth ?? 0, "cool", "warm", "deeply warm");
+  const tension = rangeLabel(e.tension ?? 0, "relaxed", "focused", "tense");
+  const delivery = rangeLabel(v.delivery ?? 0, "gentle", "controlled", "driving");
+  const texture = rangeLabel(v.texture ?? 0, "smooth", "textured", "raw");
+  const runs = rangeLabel(v.runs ?? 0, "plain", "melodic", "run-heavy");
+  const preset = emotionPreset ? emotionPreset.charAt(0) + emotionPreset.slice(1).toLowerCase() : "";
+  const vocal = vocalPreset ? vocalPreset.charAt(0) + vocalPreset.slice(1).toLowerCase() : "";
+  return [preset, vocal, intensity, warmth, tension, delivery, texture, runs]
+    .filter((v, i, a) => a.indexOf(v) === i)
+    .join(" · ");
 }
 
 function downloadTextFile(filename, content, mimeType = "text/plain") {
@@ -2794,7 +2812,7 @@ export default function App() {
 
                   <div className="profile-summary">
                     <h4>Original Performance Profile</h4>
-                    <p>Warm, soulful, intimate, restrained, emotional.</p>
+                    <p>{buildProfileSummary(versionA, emotionPreset, vocalPreset)}</p>
                   </div>
                 </div>
 
@@ -2881,7 +2899,7 @@ export default function App() {
 
                   <div className="profile-summary">
                     <h4>New Performance Profile</h4>
-                    <p>More intense, layered, vulnerable, wide, expressive.</p>
+                    <p>{buildProfileSummary(effectiveSettings, emotionPreset, vocalPreset)}</p>
                   </div>
                 </div>
               </div>
