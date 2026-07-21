@@ -11,6 +11,10 @@ import redKissImage from "../images/logos/Red_Kiss.png";
 import shotGlassImage from "../images/logos/Shot_Glass.png";
 import shotsImage from "../images/logos/Shots.jpeg";
 import zeroOneImage from "../images/logos/0_1.jpeg";
+import createImage from "../images/logos/Create.jpeg";
+import textFaceImage from "../images/logos/TextFace.jpeg";
+import stainGlassImage from "../images/logos/StainGlassGeometry.jpeg";
+import theRhythmImage from "../images/logos/TheRhythm.jpeg";
 import saionThumbImage from "../images/logos/thumbs/SAION.png";
 import atlantistThumbImage from "../images/logos/thumbs/Atlantist.png";
 import bubbleLipsThumbImage from "../images/logos/thumbs/Bubble_LIps.png";
@@ -19,6 +23,10 @@ import redKissThumbImage from "../images/logos/thumbs/Red_Kiss.png";
 import shotGlassThumbImage from "../images/logos/thumbs/Shot_Glass.png";
 import shotsThumbImage from "../images/logos/thumbs/Shots.jpeg";
 import zeroOneThumbImage from "../images/logos/thumbs/0_1.jpeg";
+import createThumbImage from "../images/logos/thumbs/Create.jpeg";
+import textFaceThumbImage from "../images/logos/thumbs/TextFace.jpeg";
+import stainGlassThumbImage from "../images/logos/thumbs/StainGlassGeometry.jpeg";
+import theRhythmThumbImage from "../images/logos/thumbs/TheRhythm.jpeg";
 const HolographicGlobe = lazy(() => import("./HolographicGlobe"));
 
 function CornerDial({ value, onChange, color, label, style }) {
@@ -935,6 +943,34 @@ const TEXTURE_PRESETS = [
     label: "Zero One",
     thumbnailUrl: zeroOneThumbImage,
     textureUrl: zeroOneImage,
+    normalMapUrl: null
+  },
+  {
+    id: "create",
+    label: "Create",
+    thumbnailUrl: createThumbImage,
+    textureUrl: createImage,
+    normalMapUrl: null
+  },
+  {
+    id: "text-face",
+    label: "Text Face",
+    thumbnailUrl: textFaceThumbImage,
+    textureUrl: textFaceImage,
+    normalMapUrl: null
+  },
+  {
+    id: "stain-glass",
+    label: "Stain Glass",
+    thumbnailUrl: stainGlassThumbImage,
+    textureUrl: stainGlassImage,
+    normalMapUrl: null
+  },
+  {
+    id: "the-rhythm",
+    label: "The Rhythm",
+    thumbnailUrl: theRhythmThumbImage,
+    textureUrl: theRhythmImage,
     normalMapUrl: null
   }
 ];
