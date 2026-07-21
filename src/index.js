@@ -92,6 +92,23 @@ function toAbsoluteUrl(req, maybePath) {
   return value.startsWith('/') ? `${origin}${value}` : `${origin}/${value}`;
 }
 
+function hasSourceAudioPayload(payload = {}) {
+  if (!payload || typeof payload !== 'object') return false;
+
+  const candidates = [
+    payload.sourceAudioUrl,
+    payload.source_audio_url,
+    payload.inputAudioUrl,
+    payload.input_audio_url,
+    payload.sourceAudioData,
+    payload.source_audio_data,
+    payload.inputAudioData,
+    payload.input_audio_data
+  ];
+
+  return candidates.some((value) => typeof value === 'string' && value.trim().length > 0);
+}
+
 function extractBearerToken(authorizationHeader = '') {
   if (!authorizationHeader || typeof authorizationHeader !== 'string') return '';
   const match = authorizationHeader.match(/^Bearer\s+(.+)$/i);
@@ -1063,7 +1080,7 @@ app.post(['/api/provider/generate', '/api/apiframe/generate'], async (req, res) 
       return;
     }
 
-    const generatePathCandidates = Array.isArray(cfg.generatePathCandidates) ? cfg.generatePathCandidates : [cfg.generatePath];
+    let generatePathCandidates = Array.isArray(cfg.generatePathCandidates) ? cfg.generatePathCandidates : [cfg.generatePath];
 
     if (!cfg.baseUrl || generatePathCandidates.length === 0) {
       res.status(400).json({ error: `Missing base URL or generate path for generator: ${generator}` });
@@ -1157,6 +1174,32 @@ app.post(['/api/provider/generate', '/api/apiframe/generate'], async (req, res) 
     }
 
     const isElevenLabs = String(cfg.normalized || generator || '').toLowerCase() === 'elevenlabs';
+    const wantsSourceDrivenRender = hasSourceAudioPayload(effectivePayload);
+
+    if (isElevenLabs && wantsSourceDrivenRender) {
+      // For uploaded audio workflows, prefer music/transform-style routes before TTS paths
+      // so SAION doesn't return a spoken reading of the general prompt.
+      const prioritized = [];
+      const fallback = [];
+      for (const candidatePath of generatePathCandidates) {
+        const normalizedCandidate = String(candidatePath || '').toLowerCase();
+        if (normalizedCandidate.includes('/music/compose')) {
+          prioritized.push(candidatePath);
+        } else {
+          fallback.push(candidatePath);
+        }
+      }
+      if (prioritized.length > 0) {
+        generatePathCandidates = [...prioritized, ...fallback];
+      }
+    }
+
+    const activePrimaryGeneratePath = String(generatePathCandidates[0] || '').toLowerCase();
+    const shouldInjectElevenLabsText =
+      isElevenLabs &&
+      !wantsSourceDrivenRender &&
+      activePrimaryGeneratePath.includes('/text-to-speech');
+
     const templateTokens = {
       voiceId: isElevenLabs
         ? resolveElevenLabsVoiceId(payload)
@@ -1167,7 +1210,7 @@ app.post(['/api/provider/generate', '/api/apiframe/generate'], async (req, res) 
       ...effectivePayload,
       ...(effectivePayload.model || cfg.model ? { model: effectivePayload.model || cfg.model } : {}),
       prompt,
-      ...(isElevenLabs ? { text: effectivePayload.text || prompt } : {})
+      ...(shouldInjectElevenLabsText ? { text: effectivePayload.text || prompt } : {})
     };
 
     const { upstreamRes } = await fetchWithFallbackPaths({
