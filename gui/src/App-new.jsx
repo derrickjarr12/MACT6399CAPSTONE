@@ -295,6 +295,16 @@ const HARMONY_STYLE_DESCRIPTORS = {
   "Hip Hop Inspired": "sparse unison doubles with rhythmic pitch chops and punchy trap-soul harmony accents"
 };
 
+const SAION_NOTATION_PRESETS = {
+  none: { label: "No preset", notation: "" },
+  sustain: { label: "Extended Sustain", notation: "hold vowel tones with minimal vibrato, let air support carry the line" },
+  crisp: { label: "Crisp Articulation", notation: "attack each note crisply with clear consonants, minimal legato" },
+  legato: { label: "Smooth Legato", notation: "blend notes with smooth transitions, use vocal slides between phrases" },
+  melismatic: { label: "Melismatic Runs", notation: "add ornamental runs and embellishments on sustained notes" },
+  breathed: { label: "Breathed Phrases", notation: "emphasize breath marks between phrases for intimate delivery" },
+  precise: { label: "Precise Timing", notation: "lock into grid with metronomic precision, reduce swing" }
+};
+
 function buildPrompt(settings, context, fxControls, userPrompt = "") {
   const eqLow = clampPercent(fxControls.eqLow ?? fxControls.eq ?? 50);
   const eqMid = clampPercent(fxControls.eqMid ?? fxControls.eq ?? 50);
@@ -1073,6 +1083,7 @@ export default function App() {
   }, [transportNotice]);
   const [generalPrompt, setGeneralPrompt] = useState("");
   const [promptFineTune, setPromptFineTune] = useState("");
+  const [selectedFineTunePreset, setSelectedFineTunePreset] = useState("none");
   const [hasPerformancePromptSignal, setHasPerformancePromptSignal] = useState(false);
   const [beforeAudio, setBeforeAudio] = useState("");
   const [afterAudio, setAfterAudio] = useState("");
@@ -2859,20 +2870,9 @@ export default function App() {
                     )}
                   </div>
 
-                  <label>
-                    General Prompt (Text)
-                    <textarea
-                      value={generalPrompt}
-                      onChange={(e) => handleGeneralPromptChange(e.target.value)}
-                      placeholder="Hybrid prompt input: dial-driven performance + optional text notes (max 180 words)."
-                    />
-                    <small>
-                      This is a hybrid prompt field. It combines with Performance-page dial context to build the generation prompt, and also accepts your own text notes.
-                    </small>
-                  </label>
 
                   <label>
-                    Generated Prompt Preview (Performance)
+                    General Prompt (Read-Only)
                     <textarea
                       value={hasPerformancePromptSignal ? generatedPrompt : ""}
                       readOnly
@@ -2880,20 +2880,37 @@ export default function App() {
                     />
                     <small>
                       {hasPerformancePromptSignal
-                        ? "Dial-driven prompt is active and updates live from your Performance settings."
+                        ? "Your Performance settings drive this prompt. It updates live as you adjust dials."
                         : "Waiting for Performance dial movement before prompt generation is enabled."}
                     </small>
                   </label>
 
                   <label>
-                    Prompt Fine-Tune (Music Notation)
+                    Prompt Fine-Tune
+                    <div className="fine-tune-preset-selector">
+                      <select
+                        value={selectedFineTunePreset}
+                        onChange={(e) => setSelectedFineTunePreset(e.target.value)}
+                      >
+                        {Object.entries(SAION_NOTATION_PRESETS).map(([key, { label }]) => (
+                          <option key={key} value={key}>
+                            {label}
+                          </option>
+                        ))}
+                      </select>
+                      {selectedFineTunePreset !== "none" && (
+                        <small className="preset-description">
+                          {SAION_NOTATION_PRESETS[selectedFineTunePreset].notation}
+                        </small>
+                      )}
+                    </div>
                     <textarea
                       value={promptFineTune}
                       onChange={(e) => handlePromptFineTuneChange(e.target.value)}
-                      placeholder="Optional notation/style refinement (max 100 words)."
+                      placeholder="Add your own custom notation refinements (max 100 words)."
                     />
                     <small>
-                      This field is notation-focused refinement and is appended to exported notation context.
+                      Combine SAION presets with freestyle notation adjustments. All refinements are appended to the General Prompt.
                     </small>
                   </label>
 

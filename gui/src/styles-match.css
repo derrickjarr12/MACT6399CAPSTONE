@@ -2462,6 +2462,28 @@ select,
   visibility: visible;
 }
 
+.fine-tune-preset-selector {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.fine-tune-preset-selector select {
+  width: 100%;
+}
+
+.preset-description {
+  display: block;
+  color: rgba(255, 255, 255, 0.54);
+  font-size: 0.71rem;
+  font-style: italic;
+  line-height: 1.3;
+  padding: 4px 6px;
+  border-left: 2px solid rgba(103, 216, 255, 0.35);
+  padding-left: 8px;
+}
+
 .version-save {
   flex-wrap: wrap;
   row-gap: 0.4rem;
