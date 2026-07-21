@@ -288,6 +288,13 @@ function buildNotation(settings, context, fxControls) {
   ].join("\n");
 }
 
+const HARMONY_STYLE_DESCRIPTORS = {
+  "Soft Layered": "close interval harmonies gently layered for a smooth, intimate blend",
+  "Gospel Inspired": "wide chord-tone stacks with call-and-response movement and spiritual lift, rich in thirds and fifths",
+  "Wide R&B Stacks": "lush stacked harmonies using thirds and sixths, silky and polished with confident attitude",
+  "Hip Hop Inspired": "sparse unison doubles with rhythmic pitch chops and punchy trap-soul harmony accents"
+};
+
 function buildPrompt(settings, context, fxControls, userPrompt = "") {
   const eqLow = clampPercent(fxControls.eqLow ?? fxControls.eq ?? 50);
   const eqMid = clampPercent(fxControls.eqMid ?? fxControls.eq ?? 50);
@@ -318,20 +325,38 @@ function buildPrompt(settings, context, fxControls, userPrompt = "") {
   const emotionIntent = EMOTION_INTENT_BY_PRESET[context.emotionPreset] || "balanced emotional contour";
   const vocalCadenceIntent = VOCAL_CADENCE_INTENT_BY_PRESET[context.vocalPreset] || "balanced cadence profile";
   const trimmedUserPrompt = typeof userPrompt === "string" ? userPrompt.trim() : "";
+  const harmonyStyleDescriptor = HARMONY_STYLE_DESCRIPTORS[context.harmonyStyle] || HARMONY_STYLE_DESCRIPTORS["Soft Layered"];
+  const detailLevel = context.vocalDetailLevel || "Balanced";
 
-  return [
+  const baseLines = [
     `Generate a ${context.emotionPreset.toLowerCase()} / ${context.vocalPreset.toLowerCase()} performance at ${context.tempo} BPM in ${context.timeSignature}.`,
     trimmedUserPrompt ? `User creative notes: ${trimmedUserPrompt}` : null,
+    "Preserve lyrical clarity and produce a performance-ready render."
+  ];
+
+  const balancedLines = [
     `Intent focus: emotion should feel ${emotionIntent}; cadence should feel ${vocalCadenceIntent}.`,
-    `Dial points: emotion intensity ${emotionIntensity}%, emotion vulnerability ${emotionVulnerability}%, emotion confidence ${emotionConfidence}%, emotion tension ${emotionTension}%, emotion warmth ${emotionWarmth}%, emotion release ${emotionRelease}%, vocal delivery ${vocalDelivery}%, vocal texture ${vocalTexture}%, vocal performance state ${vocalState}%, vocal breath ${vocalBreath}%, vocal rasp ${vocalRasp}%, vocal runs ${vocalRuns}%, vocal timing ${vocalTiming}%, vocal warmth ${vocalWarmth}%, vocal release ${vocalRelease}%.`,
+    `Harmony style: ${harmonyStyleDescriptor}.`,
     `Delivery should feel ${intensityText}, ${vulnerabilityText}, and ${confidenceText}.`,
     `Emotional contour should stay ${emotionWarmthText} with a ${emotionReleaseText} phrase release.`,
     `Overall vocal delivery should be ${deliveryText}.`,
     `Voice should be ${textureText} with breath:${vocalBreath}, rasp:${vocalRasp}, runs:${vocalRuns}.`,
     `Phrase timing should be ${timingText} with release:${vocalRelease} and warmth:${vocalWarmth}.`,
-    `Apply polish FX during rendering: reverb ${fxControls.reverb}%, EQ lows ${eqLow}%, mids ${eqMid}%, highs ${eqHigh}%, compression ${fxControls.compression}%, delay ${fxControls.delay}%.`,
-    "Preserve lyrical clarity and produce a performance-ready render."
-  ].filter(Boolean).join(" ");
+    `Apply polish FX during rendering: reverb ${fxControls.reverb}%, EQ lows ${eqLow}%, mids ${eqMid}%, highs ${eqHigh}%, compression ${fxControls.compression}%, delay ${fxControls.delay}%.`
+  ];
+
+  const advancedLines = [
+    `Dial points: emotion intensity ${emotionIntensity}%, vulnerability ${emotionVulnerability}%, confidence ${emotionConfidence}%, tension ${emotionTension}%, warmth ${emotionWarmth}%, release ${emotionRelease}%, vocal delivery ${vocalDelivery}%, texture ${vocalTexture}%, performance state ${vocalState}%, breath ${vocalBreath}%, rasp ${vocalRasp}%, runs ${vocalRuns}%, timing ${vocalTiming}%, vocal warmth ${vocalWarmth}%, vocal release ${vocalRelease}%.`,
+    context.microTrims ? `Micro-trims applied: emotion ${context.microTrims.emotion > 0 ? "+" : ""}${context.microTrims.emotion}, vocal ${context.microTrims.vocal > 0 ? "+" : ""}${context.microTrims.vocal}, FX ${context.microTrims.fx > 0 ? "+" : ""}${context.microTrims.fx}.` : null
+  ];
+
+  const lines = detailLevel === "Simple"
+    ? baseLines
+    : detailLevel === "Advanced"
+      ? [...baseLines, ...balancedLines, ...advancedLines]
+      : [...baseLines, ...balancedLines];
+
+  return lines.filter(Boolean).join(" ");
 }
 
 function downloadTextFile(filename, content, mimeType = "text/plain") {
@@ -2083,10 +2108,13 @@ export default function App() {
     tempo,
     timeSignature,
     emotionPreset,
-    vocalPreset
+    vocalPreset,
+    harmonyStyle,
+    vocalDetailLevel,
+    microTrims: { emotion: emotionMicroTrim, vocal: vocalMicroTrim, fx: fxMicroTrim }
   };
 
-  const generatedPromptRaw = useMemo(() => buildPrompt(effectiveSettings, context, effectiveFxControls, generalPrompt), [effectiveSettings, tempo, timeSignature, emotionPreset, vocalPreset, effectiveFxControls, generalPrompt]);
+  const generatedPromptRaw = useMemo(() => buildPrompt(effectiveSettings, context, effectiveFxControls, generalPrompt), [effectiveSettings, tempo, timeSignature, emotionPreset, vocalPreset, harmonyStyle, vocalDetailLevel, emotionMicroTrim, vocalMicroTrim, fxMicroTrim, effectiveFxControls, generalPrompt]);
   const generatedPrompt = hasPerformancePromptSignal ? generatedPromptRaw : "";
   const generatedNotation = useMemo(() => buildNotation(effectiveSettings, context, effectiveFxControls), [effectiveSettings, tempo, timeSignature, emotionPreset, vocalPreset, effectiveFxControls]);
   const originalNotation = useMemo(() => buildNotation(originalSettings, context, effectiveFxControls), [originalSettings, tempo, timeSignature, emotionPreset, vocalPreset, effectiveFxControls]);
@@ -3075,6 +3103,7 @@ export default function App() {
                     <option>Soft Layered</option>
                     <option>Gospel Inspired</option>
                     <option>Wide R&amp;B Stacks</option>
+                    <option>Hip Hop Inspired</option>
                   </select>
                 </label>
 
