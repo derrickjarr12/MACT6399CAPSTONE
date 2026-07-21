@@ -374,6 +374,16 @@ function buildPrompt(settings, context, fxControls, userPrompt = "") {
 function buildProfileSummary(settings, emotionPreset, vocalPreset) {
   const e = settings?.emotion || {};
   const v = settings?.vocal || {};
+  
+  // Check if any dial has been moved from default (0)
+  const anyDialMoved = [
+    e.intensity, e.warmth, e.tension, e.vulnerability, e.confidence, e.release,
+    v.delivery, v.texture, v.runs, v.breath, v.rasp, v.performanceState, v.timing, v.warmth, v.release
+  ].some(val => (val ?? 0) !== 0);
+  
+  // If no dials have been moved, return empty (NPP will be blank until dials are dialed in)
+  if (!anyDialMoved) return "";
+  
   const intensity = rangeLabel(e.intensity ?? 0, "subdued", "moderate", "charged");
   const warmth = rangeLabel(e.warmth ?? 0, "cool", "warm", "deeply warm");
   const tension = rangeLabel(e.tension ?? 0, "relaxed", "focused", "tense");
@@ -2909,13 +2919,10 @@ export default function App() {
                       onChange={(e) => handlePromptFineTuneChange(e.target.value)}
                       placeholder="Add your own custom notation refinements (max 100 words)."
                     />
-                    <small>
-                      Combine SAION presets with freestyle notation adjustments. All refinements are appended to the General Prompt.
-                    </small>
                   </label>
 
                   <div className="profile-summary">
-                    <h4>New Performance Profile</h4>
+                    <h4>New Performance Profile (NPP)</h4>
                     <p>{buildProfileSummary(effectiveSettings, emotionPreset, vocalPreset)}</p>
                   </div>
                 </div>
