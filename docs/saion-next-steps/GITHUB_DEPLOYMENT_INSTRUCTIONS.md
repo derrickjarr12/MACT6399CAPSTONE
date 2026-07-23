@@ -49,6 +49,13 @@ Optional ElevenLabs:
 4. ELEVENLABS_GENERATE_PATH (if using backend provider route)
 5. ELEVENLABS_STATUS_PATH (if using backend provider route)
 
+Callback security (recommended for production):
+
+1. CALLBACK_AUTH_REQUIRED=true
+2. NOCODE_CALLBACK_TOKEN (or PROVIDER_CALLBACK_TOKEN)
+3. ELEVENLABS_REQUIRE_SIGNATURE=true
+4. ELEVENLABS_WEBHOOK_SIGNING_SECRET
+
 ## 3. GitHub Repository Setup
 
 1. Push your latest branch to GitHub.

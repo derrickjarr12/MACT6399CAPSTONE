@@ -126,21 +126,68 @@ function getCallbackTokenFromRequest(req) {
   ).trim();
 }
 
+function parseBooleanEnvFlag(value) {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (!normalized) return null;
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) return true;
+  if (['0', 'false', 'no', 'off'].includes(normalized)) return false;
+  return null;
+}
+
+function isProductionRuntime() {
+  return String(process.env.NODE_ENV || '').trim().toLowerCase() === 'production';
+}
+
+function isCallbackTokenEnforced() {
+  const explicit = parseBooleanEnvFlag(process.env.CALLBACK_AUTH_REQUIRED);
+  if (explicit !== null) return explicit;
+  return isProductionRuntime();
+}
+
+function isElevenLabsSignatureStrictModeEnabled() {
+  const explicit = parseBooleanEnvFlag(process.env.ELEVENLABS_REQUIRE_SIGNATURE);
+  if (explicit !== null) return explicit;
+  return isProductionRuntime();
+}
+
+function secureTokenEquals(left, right) {
+  const leftBuffer = Buffer.from(String(left || ''), 'utf8');
+  const rightBuffer = Buffer.from(String(right || ''), 'utf8');
+  if (leftBuffer.length !== rightBuffer.length) return false;
+  return crypto.timingSafeEqual(leftBuffer, rightBuffer);
+}
+
 function isCallbackAuthorized(req) {
   const expectedToken = String(
     process.env.NOCODE_CALLBACK_TOKEN ||
     process.env.PROVIDER_CALLBACK_TOKEN ||
+    process.env.CALLBACK_TOKEN ||
     ''
   ).trim();
 
-  if (!expectedToken) {
-    return { ok: true, tokenRequired: false };
+  const tokenRequired = Boolean(expectedToken) || isCallbackTokenEnforced();
+
+  if (tokenRequired && !expectedToken) {
+    return {
+      ok: false,
+      tokenRequired: true,
+      reason: 'missing_server_callback_token'
+    };
+  }
+
+  if (!tokenRequired) {
+    return { ok: true, tokenRequired: false, reason: 'token_not_required' };
   }
 
   const providedToken = getCallbackTokenFromRequest(req);
+  if (!providedToken) {
+    return { ok: false, tokenRequired: true, reason: 'missing_callback_token' };
+  }
+
   return {
-    ok: Boolean(providedToken && providedToken === expectedToken),
-    tokenRequired: true
+    ok: secureTokenEquals(providedToken, expectedToken),
+    tokenRequired: true,
+    reason: 'token_checked'
   };
 }
 
@@ -857,7 +904,7 @@ function verifyElevenLabsCallbackSignature(req, generator) {
     Boolean(req.headers['x-elevenlabs-signature']) ||
     Boolean(req.headers['elevenlabs-signature']);
 
-  const strictMode = String(process.env.ELEVENLABS_REQUIRE_SIGNATURE || '').toLowerCase() === 'true';
+  const strictMode = isElevenLabsSignatureStrictModeEnabled();
   const signingSecret = String(process.env.ELEVENLABS_WEBHOOK_SIGNING_SECRET || '').trim();
 
   if (!shouldEvaluate) {
@@ -1530,6 +1577,7 @@ app.post(['/api/provider/callback', '/api/no-code/callback', '/api/apiframe/call
       res.status(401).json({
         error: 'Unauthorized callback request.',
         _pnf: {
+          callbackAuthReason: auth.reason || '',
           http: {
             status: 401,
             label: statusLabel(401)
@@ -1635,6 +1683,12 @@ app.get(['/api/provider/health', '/api/apiframe/health'], (req, res) => {
       baseUrl: cfg.baseUrl || '',
       generatePath: cfg.generatePath || '',
       statusPathTemplate: cfg.statusPathTemplate || ''
+    },
+    callbackSecurity: {
+      tokenRequired: isCallbackTokenEnforced() || Boolean(String(process.env.NOCODE_CALLBACK_TOKEN || process.env.PROVIDER_CALLBACK_TOKEN || process.env.CALLBACK_TOKEN || '').trim()),
+      tokenConfigured: Boolean(String(process.env.NOCODE_CALLBACK_TOKEN || process.env.PROVIDER_CALLBACK_TOKEN || process.env.CALLBACK_TOKEN || '').trim()),
+      elevenlabsSignatureStrict: isElevenLabsSignatureStrictModeEnabled(),
+      elevenlabsSigningSecretConfigured: Boolean(String(process.env.ELEVENLABS_WEBHOOK_SIGNING_SECRET || '').trim())
     },
     persistence: {
       mysqlConfigured: Boolean(getMySqlConfig()),
