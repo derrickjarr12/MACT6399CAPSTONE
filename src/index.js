@@ -37,6 +37,7 @@ const {
 
 // --- Express server setup ---
 const app = express();
+app.set('trust proxy', true);
 const PORT = process.env.PORT || 3000;
 
 const requestStore = new Map();
