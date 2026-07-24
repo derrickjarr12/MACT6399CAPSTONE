@@ -569,6 +569,13 @@ function isAudioDataUrl(value) {
 
 function dataUrlToObjectUrl(dataUrl) {
   if (!isAudioDataUrl(dataUrl)) return "";
+  
+  // Safety check: prevent processing extremely large data URLs (>100MB)
+  if (dataUrl.length > 100 * 1024 * 1024) {
+    console.warn("⚠️ Data URL too large, skipping conversion:", dataUrl.length, "bytes");
+    return "";
+  }
+  
   try {
     const [header, payload] = dataUrl.split(",", 2);
     if (!header || !payload) return "";
@@ -577,6 +584,11 @@ function dataUrlToObjectUrl(dataUrl) {
 
     let bytes;
     if (header.includes(";base64")) {
+      // Validate base64 format before decoding
+      if (!/^[A-Za-z0-9+/]*={0,2}$/.test(payload)) {
+        console.warn("⚠️ Invalid base64 format in data URL");
+        return "";
+      }
       const binary = atob(payload);
       bytes = new Uint8Array(binary.length);
       for (let i = 0; i < binary.length; i += 1) {
@@ -587,7 +599,8 @@ function dataUrlToObjectUrl(dataUrl) {
     }
 
     return URL.createObjectURL(new Blob([bytes], { type: mimeType }));
-  } catch (_) {
+  } catch (error) {
+    console.error("❌ Failed to convert data URL to object URL:", error.message);
     return "";
   }
 }
@@ -1105,6 +1118,10 @@ export default function App() {
   const [savedSessions, setSavedSessions] = useState([]);
   const [selectedSessionIndex, setSelectedSessionIndex] = useState("-1");
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isCopying, setIsCopying] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+  const [isLoadingSession, setIsLoadingSession] = useState(false);
+  const [isSavingSession, setIsSavingSession] = useState(false);
   const [localPreviewOnly, setLocalPreviewOnly] = useState(false);
   const [activeAudioIndex, setActiveAudioIndex] = useState(0);
   const [fxControls, setFxControls] = useState(INITIAL_FX_CONTROLS);
@@ -1575,7 +1592,16 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    window.localStorage.setItem("pnf-aims-sessions", JSON.stringify(savedSessions));
+    try {
+      window.localStorage.setItem("pnf-aims-sessions", JSON.stringify(savedSessions));
+    } catch (error) {
+      if (error.name === "QuotaExceededError") {
+        console.error("❌ localStorage quota exceeded - session not saved");
+        setSavedState("STORAGE FULL");
+      } else {
+        console.error("❌ Failed to persist sessions to localStorage:", error.message);
+      }
+    }
   }, [savedSessions]);
 
   useEffect(() => {
@@ -1616,7 +1642,8 @@ export default function App() {
 
   useEffect(() => {
     if (!audioElementRef.current) return;
-    audioElementRef.current.volume = volume / 100;
+    // Apply 1.5x volume boost: 50→75%, 75→100%, 100→125% (capped at 1.0)
+    audioElementRef.current.volume = Math.min(1.0, (volume / 100) * 1.5);
   }, [volume]);
 
   useEffect(() => {
@@ -2197,91 +2224,149 @@ export default function App() {
   });
 
   const handleSaveSession = () => {
-    const payload = {
-      ...buildSessionPayload(),
-      savedAt: new Date().toISOString()
-    };
-    setSavedSessions(prev => [payload, ...prev].slice(0, 20));
-    setSelectedSessionIndex("0");
-    setSavedState("SESSION SAVED");
+    if (isSavingSession) return;
+    
+    try {
+      setIsSavingSession(true);
+      const payload = {
+        ...buildSessionPayload(),
+        savedAt: new Date().toISOString()
+      };
+
+      // Estimate payload size before storing
+      const payloadJson = JSON.stringify(payload);
+      const estimatedSizeKb = payloadJson.length / 1024;
+      const storageKey = "pnf-aims-sessions";
+      
+      // Check if payload is too large (> 2MB, leaving margin for other data)
+      if (estimatedSizeKb > 2048) {
+        setSavedState(`SESSION TOO LARGE (${Math.round(estimatedSizeKb)}KB, max 2MB)`);
+        console.warn("❌ Session payload exceeds 2MB limit:", estimatedSizeKb, "KB");
+        return;
+      }
+
+      // Check localStorage space
+      try {
+        const existingData = localStorage.getItem(storageKey) || "[]";
+        const existingJson = JSON.parse(existingData);
+        const totalSizeKb = (existingJson.toString().length + payloadJson.length) / 1024;
+        
+        if (totalSizeKb > 4096) {
+          setSavedState("STORAGE FULL: Clear old sessions");
+          console.warn("❌ localStorage would exceed 4MB:", totalSizeKb, "KB");
+          return;
+        }
+      } catch (spaceCheckError) {
+        console.warn("⚠️ Could not check localStorage space:", spaceCheckError.message);
+      }
+
+      setSavedSessions(prev => [payload, ...prev].slice(0, 20));
+      setSelectedSessionIndex("0");
+      setSavedState("SESSION SAVED");
+    } catch (error) {
+      console.error("❌ Failed to save session:", error);
+      setSavedState(`SAVE FAILED: ${error.message || 'Unknown error'}`);
+    } finally {
+      setIsSavingSession(false);
+    }
   };
 
   const handleLoadSession = () => {
-    const index = Number(selectedSessionIndex);
-    if (Number.isNaN(index) || index < 0 || index >= savedSessions.length) {
-      setSavedState("NO SESSION SELECTED");
-      return;
-    }
-
-    const session = savedSessions[index];
-    if (!session || !session.settings || !session.settings.current || !session.settings.original) {
-      setSavedState("INVALID SESSION");
-      return;
-    }
-
-    setSessionTitle(session.title || "Song Idea 1");
-    setGeneralPrompt(enforceWordLimit(session.generalPrompt || "", GENERAL_PROMPT_WORD_LIMIT));
-    setPromptFineTune(enforceWordLimit(session.promptFineTune || "", PROMPT_FINE_TUNE_WORD_LIMIT));
-    setHasPerformancePromptSignal(true);
-    const restoredBeforeAudio = (() => {
-      if (session.beforeAudio && session.beforeAudio.startsWith("blob:") && session.beforeAudioDataUrl) {
-        return session.beforeAudioDataUrl;
+    if (isLoadingSession) return;
+    
+    try {
+      setIsLoadingSession(true);
+      const index = Number(selectedSessionIndex);
+      if (Number.isNaN(index) || index < 0 || index >= savedSessions.length) {
+        setSavedState("NO SESSION SELECTED");
+        return;
       }
-      return session.beforeAudio || session.beforeAudioDataUrl || "";
-    })();
 
-    const previousBeforeLocalUrl = localAudioUrlsRef.current.before;
-    if (previousBeforeLocalUrl) {
-      URL.revokeObjectURL(previousBeforeLocalUrl);
-      localAudioUrlsRef.current.before = "";
-    }
+      const session = savedSessions[index];
+      if (!session || !session.settings || !session.settings.current || !session.settings.original) {
+        setSavedState("INVALID SESSION");
+        return;
+      }
 
-    const restoredBeforeObjectUrl = dataUrlToObjectUrl(restoredBeforeAudio);
-    if (restoredBeforeObjectUrl) {
-      localAudioUrlsRef.current.before = restoredBeforeObjectUrl;
-    }
+      setSessionTitle(session.title || "Song Idea 1");
+      setGeneralPrompt(enforceWordLimit(session.generalPrompt || "", GENERAL_PROMPT_WORD_LIMIT));
+      setPromptFineTune(enforceWordLimit(session.promptFineTune || "", PROMPT_FINE_TUNE_WORD_LIMIT));
+      setHasPerformancePromptSignal(true);
+      const restoredBeforeAudio = (() => {
+        if (session.beforeAudio && session.beforeAudio.startsWith("blob:") && session.beforeAudioDataUrl) {
+          return session.beforeAudioDataUrl;
+        }
+        return session.beforeAudio || session.beforeAudioDataUrl || "";
+      })();
 
-    setBeforeAudio(restoredBeforeObjectUrl || restoredBeforeAudio);
-    setAfterAudio(session.afterAudio || "");
-    setBeforeAudioDataUrl(
-      session.beforeAudioDataUrl ||
-      (isAudioDataUrl(restoredBeforeAudio) ? restoredBeforeAudio : "")
-    );
-    setBeforeAudioFileName(session.beforeAudioFileName || "");
-    setBeforeAudioFormat(session.beforeAudioFormat || "");
-    setAfterAudioFormat("");
-    setAfterAudioFileName("");
-    setTempo(session.settings.tempo || 120);
-    setTimeSignature(session.settings.timeSignature || "4/4");
-    setEmotionPreset(session.settings.emotionPreset || "LONGING");
-    setVocalPreset(session.settings.vocalPreset || "SOULFUL");
-    if (typeof session.settings.localPreviewOnly === "boolean") {
-      setLocalPreviewOnly(session.settings.localPreviewOnly);
+      const previousBeforeLocalUrl = localAudioUrlsRef.current.before;
+      if (previousBeforeLocalUrl) {
+        URL.revokeObjectURL(previousBeforeLocalUrl);
+        localAudioUrlsRef.current.before = "";
+      }
+
+      const restoredBeforeObjectUrl = dataUrlToObjectUrl(restoredBeforeAudio);
+      if (restoredBeforeObjectUrl) {
+        localAudioUrlsRef.current.before = restoredBeforeObjectUrl;
+      }
+
+      setBeforeAudio(restoredBeforeObjectUrl || restoredBeforeAudio);
+      setAfterAudio(session.afterAudio || "");
+      setBeforeAudioDataUrl(
+        session.beforeAudioDataUrl ||
+        (isAudioDataUrl(restoredBeforeAudio) ? restoredBeforeAudio : "")
+      );
+      setBeforeAudioFileName(session.beforeAudioFileName || "");
+      setBeforeAudioFormat(session.beforeAudioFormat || "");
+      setAfterAudioFormat("");
+      setAfterAudioFileName("");
+      setTempo(session.settings.tempo || 120);
+      setTimeSignature(session.settings.timeSignature || "4/4");
+      setEmotionPreset(session.settings.emotionPreset || "LONGING");
+      setVocalPreset(session.settings.vocalPreset || "SOULFUL");
+      if (typeof session.settings.localPreviewOnly === "boolean") {
+        setLocalPreviewOnly(session.settings.localPreviewOnly);
+      }
+      const sessionFxControls = session.settings.fxControls || {};
+      const legacyEq = clampPercent(sessionFxControls.eq ?? INITIAL_FX_CONTROLS.eqMid);
+      setFxControls({
+        ...INITIAL_FX_CONTROLS,
+        ...sessionFxControls,
+        eqLow: clampPercent(sessionFxControls.eqLow ?? legacyEq),
+        eqMid: clampPercent(sessionFxControls.eqMid ?? legacyEq),
+        eqHigh: clampPercent(sessionFxControls.eqHigh ?? legacyEq)
+      });
+      setVersionA(session.settings.original);
+      setVersionB(session.settings.current);
+      setEmotionMicroTrim(Number(session.settings?.microTrims?.emotion ?? 0));
+      setVocalMicroTrim(Number(session.settings?.microTrims?.vocal ?? 0));
+      setFxMicroTrim(Number(session.settings?.microTrims?.fx ?? 0));
+      setActiveVersion("B");
+      setSavedState("SESSION LOADED");
+    } catch (error) {
+      console.error("❌ Failed to load session:", error);
+      setSavedState(`LOAD FAILED: ${error.message || 'Unknown error'}`);
+    } finally {
+      setIsLoadingSession(false);
     }
-    const sessionFxControls = session.settings.fxControls || {};
-    const legacyEq = clampPercent(sessionFxControls.eq ?? INITIAL_FX_CONTROLS.eqMid);
-    setFxControls({
-      ...INITIAL_FX_CONTROLS,
-      ...sessionFxControls,
-      eqLow: clampPercent(sessionFxControls.eqLow ?? legacyEq),
-      eqMid: clampPercent(sessionFxControls.eqMid ?? legacyEq),
-      eqHigh: clampPercent(sessionFxControls.eqHigh ?? legacyEq)
-    });
-    setVersionA(session.settings.original);
-    setVersionB(session.settings.current);
-    setEmotionMicroTrim(Number(session.settings?.microTrims?.emotion ?? 0));
-    setVocalMicroTrim(Number(session.settings?.microTrims?.vocal ?? 0));
-    setFxMicroTrim(Number(session.settings?.microTrims?.fx ?? 0));
-    setActiveVersion("B");
-    setSavedState("SESSION LOADED");
   };
 
   const handleCopyPrompt = async () => {
+    if (isCopying) return;
+    if (!generatedPrompt.trim()) {
+      setSavedState("NO PROMPT TO COPY");
+      return;
+    }
+    
     try {
+      setIsCopying(true);
       await navigator.clipboard.writeText(generatedPrompt);
       setSavedState("PROMPT COPIED");
     } catch (error) {
+      console.error("❌ Failed to copy prompt:", error);
       setSavedState("COPY FAILED");
+    } finally {
+      setIsCopying(false);
     }
   };
 
@@ -2560,11 +2645,21 @@ export default function App() {
   };
 
   const handleDownloadNotation = () => {
-    downloadTextFile(
-      `${(sessionTitle || "song-idea").replace(/\s+/g, "-").toLowerCase()}-notation.txt`,
-      notationWithLocalSettings
-    );
-    setSavedState("NOTATION DOWNLOADED");
+    if (isExporting) return;
+    
+    try {
+      setIsExporting(true);
+      downloadTextFile(
+        `${(sessionTitle || "song-idea").replace(/\s+/g, "-").toLowerCase()}-notation.txt`,
+        notationWithLocalSettings
+      );
+      setSavedState("NOTATION DOWNLOADED");
+    } catch (error) {
+      console.error("❌ Failed to download notation:", error);
+      setSavedState("DOWNLOAD FAILED");
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   const handleExportSessionJson = () => {
@@ -2595,6 +2690,8 @@ export default function App() {
   };
 
   const handleExportAfterAudio = async () => {
+    if (isExporting) return;
+    
     const source = afterAudio.trim();
     if (!source) {
       setSavedState("NO NEW AUDIO");
@@ -2606,6 +2703,8 @@ export default function App() {
     const fileStem = `${sanitizeFileStem(sessionTitle)}-after`;
 
     try {
+      setIsExporting(true);
+      
       if (source.startsWith("http") || source.startsWith("blob:") || source.startsWith("data:audio/")) {
         const response = await fetch(source);
         if (!response.ok) {
@@ -2641,22 +2740,34 @@ export default function App() {
 
       setSavedState("AUDIO EXPORT FAILED");
       setTransportStatus("EXPORT FAILED");
+    } finally {
+      setIsExporting(false);
     }
   };
 
   const handleExport = async () => {
-    const hasNewAudio = Boolean(afterAudio.trim());
-    if (hasNewAudio) {
-      await handleExportAfterAudio();
+    if (isExporting) return;
+    
+    try {
+      setIsExporting(true);
+      const hasNewAudio = Boolean(afterAudio.trim());
+      if (hasNewAudio) {
+        await handleExportAfterAudio();
+      }
+      handleExportSessionSummary();
+      if (hasNewAudio) {
+        setSavedState("EXPORT COMPLETE");
+      }
+      setTransportNotice({
+        tone: "success",
+        message: "Export complete. You now get a readable session summary by default."
+      });
+    } catch (error) {
+      console.error("❌ Export failed:", error);
+      setSavedState("EXPORT FAILED");
+    } finally {
+      setIsExporting(false);
     }
-    handleExportSessionSummary();
-    if (hasNewAudio) {
-      setSavedState("EXPORT COMPLETE");
-    }
-    setTransportNotice({
-      tone: "success",
-      message: "Export complete. You now get a readable session summary by default."
-    });
   };
 
   const emotionDial = currentSettings.emotion.intensity;
@@ -2940,10 +3051,18 @@ export default function App() {
                 <button onClick={handleGenerateAudio} disabled={isGenerating}>
                   {isGenerating ? "Generating..." : "Generate Audio"}
                 </button>
-                <button onClick={handleCopyPrompt}>Copy Prompt</button>
-                <button onClick={handleDownloadNotation}>Download Notation</button>
-                <button onClick={handleSaveSession}>Save Session</button>
-                <button onClick={handleLoadSession}>Load Session</button>
+                <button onClick={handleCopyPrompt} disabled={isCopying || !generatedPrompt.trim()}>
+                  {isCopying ? "Copying..." : "Copy Prompt"}
+                </button>
+                <button onClick={handleDownloadNotation} disabled={isExporting}>
+                  {isExporting ? "Downloading..." : "Download Notation"}
+                </button>
+                <button onClick={handleSaveSession} disabled={isSavingSession}>
+                  {isSavingSession ? "Saving..." : "Save Session"}
+                </button>
+                <button onClick={handleLoadSession} disabled={isLoadingSession || selectedSessionIndex === "-1"}>
+                  {isLoadingSession ? "Loading..." : "Load Session"}
+                </button>
               </div>
 
               <label>
@@ -3611,8 +3730,9 @@ export default function App() {
             <button
               className="save-btn"
               onClick={handleExport}
+              disabled={isExporting}
             >
-              Export Summary
+              {isExporting ? "Exporting..." : "Export Summary"}
             </button>
           </div>
           <div className="waveform-label">{`${transportStatus} · ${savedState}`}</div>

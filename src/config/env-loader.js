@@ -29,8 +29,9 @@ function bootstrapEnv() {
 const requiredKeys = [];
 
 const providerKeys = [
-  'SUNO_API_KEY',
-  'MUREKA_API_KEY'
+  // Music providers disabled - using ElevenLabs for all audio in this phase
+  // 'SUNO_API_KEY',
+  // 'MUREKA_API_KEY'
 ];
 
 const optionalKeys = [
@@ -104,8 +105,8 @@ function loadEnv() {
     throw new Error(errorMsg);
   }
 
-  if (!config.SUNO_API_KEY && !config.MUREKA_API_KEY) {
-    warnings.push('No music provider key configured. Generation endpoints will return key-missing errors until SUNO_API_KEY or MUREKA_API_KEY is set.');
+  if (!config.ELEVENLABS_API_KEY || !config.ELEVENLABS_VOICE_ID) {
+    warnings.push('ElevenLabs is the active provider - ensure ELEVENLABS_API_KEY and ELEVENLABS_VOICE_ID are set.');
   }
 
   // Log warnings if any

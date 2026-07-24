@@ -149,6 +149,145 @@ See full details in:
 
 - [07-ffmpeg-integration.md](./07-ffmpeg-integration.md)
 
+## Generated Audio Lifecycle
+
+**CRITICAL: Complete journey of audio from generation through storage, retrieval, and export.**
+
+### Phase 1: Generation & Backend Storage
+
+1. **Frontend Submission**: React GUI calls `handleGenerateAudio()` which POSTs prompt + settings to `/api/apiframe/generate`
+
+2. **Backend Reception**: Express endpoint `POST /api/provider/generate` receives request:
+   - Extracts prompt, generator, payload, requestId
+   - Resolves provider config (currently ElevenLabs only)
+   - Sends to ElevenLabs API with source audio (if uploaded)
+
+3. **ElevenLabs Response**: Provider returns binary audio stream (MP3/WAV/M4A)
+
+4. **Temporary Storage**: Backend writes audio bytes to OS temp directory:
+   ```
+   File Path: /tmp/saion-elevenlabs-music-{timestamp}-{hex}.mp3
+   Purpose: Temporary buffer for serving to frontend
+   ```
+
+5. **Artifact Registration**: Backend calls `registerMediaArtifact()`:
+   - Generates UUID `artifactId` 
+   - Creates in-memory store entry: `mediaArtifactStore.set(artifactId, {filePath, mimeType, extension, expiresAt})`
+   - **TTL: 1 HOUR** ⏱️ (hardcoded, critical for cleanup)
+   - Detects MIME type from response headers (audio/mpeg, audio/wav, etc.)
+
+### Phase 2: Artifact Serving
+
+Endpoint: **`GET /api/media/ffmpeg/artifacts/{artifactId}`**
+
+Behavior:
+1. Looks up `artifactId` in `mediaArtifactStore` (in-memory Map)
+2. Validates artifact hasn't expired (`record.expiresAt <= Date.now()`)
+3. If expired: deletes from store, deletes temp file, returns 410 Gone
+4. If valid: sets HTTP headers and serves file:
+   - `Content-Type: {record.mimeType}` (e.g., audio/mpeg)
+   - `Content-Length: {filesize}` (byte count)
+   - `Cache-Control: private, max-age=300` (browser cache 5 minutes)
+5. Returns 404 if artifact ID not found
+6. Returns 410 if temp file unavailable
+
+**Expiration Cleanup**: After 1 hour, artifact is automatically deleted from memory and temp file is unlinked.
+
+### Phase 3: Frontend State Management
+
+1. **Response Reception**: `handleGenerateAudio()` receives response with `audioUrl`:
+   ```
+   audioUrl: "http://localhost:3000/api/media/ffmpeg/artifacts/a1b2c3d4-e5f6-..."
+   ```
+
+2. **State Update**: Frontend calls `applyLiveRecord()` which updates React state:
+   ```javascript
+   afterAudio = audioUrl                                    // Store artifact URL
+   afterAudioFormat = "mp3"                                 // Detected format
+   afterAudioFileName = "generated-audio-{timestamp}.mp3"   // Auto-generated name
+   isGenerating = false                                     // Indicate completion
+   ```
+
+3. **Playback Ready**: Web Audio API now has access to audio via HTTP fetch to artifact endpoint
+
+### Phase 4: User Access Patterns
+
+#### Pattern A: Play/Listen
+- User clicks play button → Frontend fetches from `GET /api/media/ffmpeg/artifacts/{artifactId}`
+- Browser decodes and plays via Web Audio API
+- Must occur **within 1 hour** or artifact is gone
+
+#### Pattern B: Export/Download
+- User clicks "Export" → `handleExportAfterAudio()` triggers download:
+  - Fetches from artifact URL
+  - Infers audio format from response headers
+  - Browser downloads to ~/Downloads/ with sanitized filename
+  - Audio is now permanently saved locally ✅
+
+#### Pattern C: Save Session
+- User clicks "Save Session" → `handleSaveSession()` stores to localStorage:
+  ```javascript
+  savedSession = {
+    id: uuid,
+    timestamp: Date.now(),
+    beforeAudio: beforeAudioDataUrl,    // Base64 encoded original upload
+    afterAudio: afterAudio,             // Artifact URL (snapshot at save time)
+    beforeAudioDataUrl: beforeAudioDataUrl,  // Full audio data as data URL
+    versionA: {...},                    // Dial snapshots
+    versionB: {...},
+    fxControls: {...}                   // Effect settings
+  }
+  ```
+
+#### Pattern D: Load Session
+- User clicks "Load Session" → `handleLoadSession()` restores from localStorage:
+  - **Restores audio locally**: `beforeAudioDataUrl` is loaded directly into React state
+  - **Restores dial snapshots**: `versionA`, `versionB` emotion/vocal settings are restored
+  - **Restores FX settings**: Reverb, EQ, compression, delay values restored
+  - **✅ FULLY LOCAL**: No dependency on artifact endpoint or backend
+  - Even if original artifact expired (>1 hour), session plays back the complete audio locally from stored data URL
+  - **Restored session is immediately playable** without requiring generation or re-export
+  
+**Key Difference**: Unlike Pattern C, loaded sessions are **independent of artifact TTL** because audio data is stored as base64 within the session blob itself.
+
+### Phase 5: Database Persistence (Optional)
+
+If MySQL is configured, backend also writes request record to `pnf_request_jobs` table:
+```sql
+INSERT INTO pnf_request_jobs (
+  request_id,
+  generator,
+  provider_job_id,
+  prompt,
+  payload,
+  normalized_status,
+  audio_url,                    -- Artifact URL or direct ElevenLabs URL
+  created_at,
+  updated_at
+) VALUES (...)
+```
+
+This allows recovery of audio URLs even if artifact has expired, by querying provider for redownload.
+
+### Timeline Summary
+
+| Time | Status | Audio Location | Accessible |
+|------|--------|-----------------|------------|
+| T=0s | Generated | ElevenLabs API | ✅ Being downloaded |
+| T=1s | Stored | /tmp/saion-elevenlabs-music-*.mp3 + mediaArtifactStore | ✅ Via artifact endpoint |
+| T=30min | Stored | Same | ✅ Via artifact endpoint |
+| T=59min | Stored | Same | ✅ Via artifact endpoint (1 min left) |
+| T=60min | EXPIRED | Deleted from temp + store | ❌ 410 Gone response |
+| T=61min+ | Gone | Lost unless exported or session saved | ❌ Must regenerate |
+
+### Critical Implications for Production
+
+1. **Do NOT rely on artifact URLs persisting**: Always export audio before leaving the app if you need to keep it
+2. **Session saves capture URL, not audio**: Reloading a session >1 hour later will have dead artifact links
+3. **Concurrent requests**: Each generation gets unique temp file and artifactId; multiple in-flight requests are isolated
+4. **Storage limits**: In-memory store scales with concurrent users; consider external cache (Redis) for production
+5. **Callback backups**: Database persistence provides secondary recovery path if artifact expires
+
 ## Canonical Request/Response Contract
 
 Contract implementation: ../../../src/provider_contract_v1.js
