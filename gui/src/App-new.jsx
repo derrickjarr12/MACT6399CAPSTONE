@@ -3,6 +3,11 @@ import React, { useEffect, useMemo, useRef, useState, Suspense, lazy } from "rea
 import * as Tone from "tone";
 import ThreeGearDial from "./ThreeGearDial";
 import GyroscopicDial, { AMBER } from "./GyroscopicDial";
+
+// Load error handling test suite in development
+if (import.meta.env.DEV) {
+  import('./errorHandlingTests.js').catch(err => console.warn('Error tests not available:', err.message));
+}
 import saionLogo from "../images/logos/SAION.png";
 import atlantistImage from "../images/logos/Atlantist.png";
 import bubbleLipsImage from "../images/logos/Bubble_LIps.png";
