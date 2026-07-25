@@ -84,9 +84,19 @@ function removeWeightedTrim(value, trim, weight = 1) {
 }
 
 function rangeLabel(value, low, mid, high) {
-  if (value <= 33) return low;
-  if (value <= 66) return mid;
+  if (value <= 20) return low;
+  if (value <= 40) return `slightly ${low}`;
+  if (value <= 60) return mid;
+  if (value <= 80) return `slightly ${high}`;
   return high;
+}
+
+function fiveLabel(value, vl, l, m, h, vh) {
+  if (value <= 20) return vl;
+  if (value <= 40) return l;
+  if (value <= 60) return m;
+  if (value <= 80) return h;
+  return vh;
 }
 
 function enforceWordLimit(text, limit) {
@@ -324,14 +334,19 @@ function buildPrompt(settings, context, fxControls, userPrompt = "") {
   const vocalTiming = clampPercent(settings.vocal.timing ?? 50);
   const vocalWarmth = clampPercent(settings.vocal.warmth ?? 50);
   const vocalRelease = clampPercent(settings.vocal.release ?? 50);
-  const intensityText = rangeLabel(emotionIntensity, "subdued", "balanced", "charged");
-  const vulnerabilityText = rangeLabel(emotionVulnerability, "guarded", "open", "exposed");
-  const confidenceText = rangeLabel(emotionConfidence, "uncertain", "steady", "assured");
-  const emotionWarmthText = rangeLabel(emotionWarmth, "cool", "balanced", "warm");
-  const emotionReleaseText = rangeLabel(emotionRelease, "restrained", "controlled", "open");
-  const deliveryText = rangeLabel(vocalDelivery, "gentle", "controlled", "driving");
-  const textureText = rangeLabel(vocalTexture, "smooth", "textured", "raspy");
-  const timingText = rangeLabel(vocalTiming, "tight", "centered", "laid-back");
+  const intensityText = fiveLabel(emotionIntensity, "very subdued", "subdued", "balanced", "charged", "intensely charged");
+  const vulnerabilityText = fiveLabel(emotionVulnerability, "closed off", "guarded", "open", "vulnerable", "raw and exposed");
+  const confidenceText = fiveLabel(emotionConfidence, "uncertain", "tentative", "steady", "assured", "boldly confident");
+  const tensionText = fiveLabel(emotionTension, "fully relaxed", "easy", "focused", "tense", "high-tension");
+  const emotionWarmthText = fiveLabel(emotionWarmth, "icy", "cool", "neutral", "warm", "deeply warm");
+  const emotionReleaseText = fiveLabel(emotionRelease, "completely held back", "restrained", "controlled", "releasing", "fully open");
+  const deliveryText = fiveLabel(vocalDelivery, "very gentle", "gentle", "controlled", "powerful", "full power driving");
+  const textureText = fiveLabel(vocalTexture, "pure and clean", "smooth", "lightly textured", "gritty", "raw and raspy");
+  const timingText = fiveLabel(vocalTiming, "strictly on the grid", "tight", "centered", "slightly laid-back", "deeply laid-back");
+  const breathText = fiveLabel(vocalBreath, "no audible breath", "minimal breath", "moderate breath", "breathy", "heavily breathy");
+  const raspText = fiveLabel(vocalRasp, "no rasp", "clean with a hint of grit", "lightly raspy", "raspy", "heavily raspy");
+  const runsText = fiveLabel(vocalRuns, "no runs", "occasional subtle runs", "moderate melodic runs", "frequent runs", "heavily melismatic");
+  const vocalStateText = fiveLabel(vocalState, "understated and reserved", "relaxed and natural", "engaged and present", "energized and expressive", "peak performance energy");
   const emotionIntent = EMOTION_INTENT_BY_PRESET[context.emotionPreset] || "balanced emotional contour";
   const vocalCadenceIntent = VOCAL_CADENCE_INTENT_BY_PRESET[context.vocalPreset] || "balanced cadence profile";
   const trimmedUserPrompt = typeof userPrompt === "string" ? userPrompt.trim() : "";
@@ -347,21 +362,33 @@ function buildPrompt(settings, context, fxControls, userPrompt = "") {
     "Preserve lyrical clarity and produce a performance-ready render."
   ];
 
+  const fxReverbText = fiveLabel(fxControls.reverb ?? 0, "dry, no reverb", "light room ambience", "moderate reverb", "lush reverb", "deeply washed out reverb");
+  const fxCompressionText = fiveLabel(fxControls.compression ?? 0, "no compression", "light glue compression", "moderate compression", "heavy compression", "heavily squashed");
+  const fxDelayText = fiveLabel(fxControls.delay ?? 0, "no delay", "subtle echo", "moderate slapback delay", "rhythmic delay", "heavily delayed");
+  const eqDesc = `lows ${eqLow > 60 ? "boosted" : eqLow < 40 ? "cut" : "flat"}, mids ${eqMid > 60 ? "boosted" : eqMid < 40 ? "cut" : "flat"}, highs ${eqHigh > 60 ? "boosted" : eqHigh < 40 ? "cut" : "flat"}`;
+
   const balancedLines = [
     `Intent focus: emotion should feel ${emotionIntent}; cadence should feel ${vocalCadenceIntent}.`,
     `Harmony style: ${harmonyStyleDescriptor}.`,
     `Performance profile: ${profileSummary}.`,
-    `Delivery should feel ${intensityText}, ${vulnerabilityText}, and ${confidenceText}.`,
-    `Emotional contour should stay ${emotionWarmthText} with a ${emotionReleaseText} phrase release.`,
-    `Overall vocal delivery should be ${deliveryText}.`,
-    `Voice should be ${textureText} with breath:${vocalBreath}, rasp:${vocalRasp}, runs:${vocalRuns}.`,
-    `Phrase timing should be ${timingText} with release:${vocalRelease} and warmth:${vocalWarmth}.`,
-    `Apply polish FX during rendering: reverb ${fxControls.reverb}%, EQ lows ${eqLow}%, mids ${eqMid}%, highs ${eqHigh}%, compression ${fxControls.compression}%, delay ${fxControls.delay}%.`
+    `Emotional delivery: ${intensityText}, ${vulnerabilityText}, ${confidenceText}, tension is ${tensionText}.`,
+    `Emotional contour: ${emotionWarmthText} warmth with a ${emotionReleaseText} phrase release.`,
+    `Performance state: ${vocalStateText}.`,
+    `Vocal character: ${deliveryText} delivery, voice texture is ${textureText}.`,
+    `Breath: ${breathText}. Rasp: ${raspText}. Melodic runs: ${runsText}.`,
+    `Phrase timing is ${timingText} with vocal release ${vocalRelease < 30 ? "tight" : vocalRelease < 60 ? "controlled" : "open"} and warmth ${vocalWarmth < 30 ? "cool" : vocalWarmth < 60 ? "neutral" : "warm"}.`,
+    `FX: ${fxReverbText}; ${fxCompressionText}; ${fxDelayText}; EQ: ${eqDesc}.`
   ];
 
+  const microEmotionDesc = context.microTrims?.emotion !== 0 ? (context.microTrims?.emotion > 0 ? `push emotion +${context.microTrims.emotion}` : `pull back emotion ${context.microTrims.emotion}`) : null;
+  const microVocalDesc = context.microTrims?.vocal !== 0 ? (context.microTrims?.vocal > 0 ? `heighten vocal expressiveness +${context.microTrims.vocal}` : `soften vocal expressiveness ${context.microTrims.vocal}`) : null;
+  const microFxDesc = context.microTrims?.fx !== 0 ? (context.microTrims?.fx > 0 ? `add FX presence +${context.microTrims.fx}` : `reduce FX presence ${context.microTrims.fx}`) : null;
+  const microTrimLine = [microEmotionDesc, microVocalDesc, microFxDesc].filter(Boolean).join("; ");
+
   const advancedLines = [
-    `Dial points: emotion intensity ${emotionIntensity}%, vulnerability ${emotionVulnerability}%, confidence ${emotionConfidence}%, tension ${emotionTension}%, warmth ${emotionWarmth}%, release ${emotionRelease}%, vocal delivery ${vocalDelivery}%, texture ${vocalTexture}%, performance state ${vocalState}%, breath ${vocalBreath}%, rasp ${vocalRasp}%, runs ${vocalRuns}%, timing ${vocalTiming}%, vocal warmth ${vocalWarmth}%, vocal release ${vocalRelease}%.`,
-    context.microTrims ? `Micro-trims applied: emotion ${context.microTrims.emotion > 0 ? "+" : ""}${context.microTrims.emotion}, vocal ${context.microTrims.vocal > 0 ? "+" : ""}${context.microTrims.vocal}, FX ${context.microTrims.fx > 0 ? "+" : ""}${context.microTrims.fx}.` : null
+    `Precise dial values — emotion: intensity ${emotionIntensity}%, vulnerability ${emotionVulnerability}%, confidence ${emotionConfidence}%, tension ${emotionTension}%, warmth ${emotionWarmth}%, release ${emotionRelease}%.`,
+    `Vocal dials: delivery ${vocalDelivery}%, texture ${vocalTexture}%, performance state ${vocalState}%, breath ${vocalBreath}%, rasp ${vocalRasp}%, runs ${vocalRuns}%, timing ${vocalTiming}%, warmth ${vocalWarmth}%, release ${vocalRelease}%.`,
+    microTrimLine ? `Fine-tune micro-trims: ${microTrimLine}.` : null
   ];
 
   const lines = detailLevel === "Simple"
