@@ -1,0 +1,61 @@
+version: '3.8'
+
+services:
+  pnf-aims-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: pnf-aims-api
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      # API Key Configuration - replace with your actual keys
+      VITE_ELEVENLABS_API_KEY: ${VITE_ELEVENLABS_API_KEY:-}
+      VITE_SUNO_API_KEY: ${VITE_SUNO_API_KEY:-}
+      VITE_MUREKA_API_KEY: ${VITE_MUREKA_API_KEY:-}
+      VITE_UDIO_API_KEY: ${VITE_UDIO_API_KEY:-}
+      # Optional: Authentication
+      VITE_AUTH_TOKEN: ${VITE_AUTH_TOKEN:-}
+      # Debug logging
+      DEBUG: ${DEBUG:-false}
+    volumes:
+      # Optional: mount logs directory for persistence
+      - ./logs:/app/logs
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - pnf-aims-network
+
+networks:
+  pnf-aims-network:
+    driver: bridge
+
+# To use this compose file:
+# 1. Create .env file with your API keys:
+#    VITE_ELEVENLABS_API_KEY=sk-xxxxx
+#    VITE_SUNO_API_KEY=xxxxx
+#
+# 2. Start the container:
+#    docker-compose up -d
+#
+# 3. Access the app at http://localhost:3000
+#
+# 4. View logs:
+#    docker-compose logs -f pnf-aims-api
+#
+# 5. Stop the container:
+#    docker-compose down
+#
+# For production deployment:
+# - Use a reverse proxy (nginx, Caddy) for HTTPS
+# - Set up proper logging and monitoring
+# - Use a managed database if needed
+# - Configure resource limits (memory, CPU)
+# - Set up backup and disaster recovery

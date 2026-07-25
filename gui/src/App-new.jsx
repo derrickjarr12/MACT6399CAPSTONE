@@ -242,6 +242,50 @@ async function readJsonSafe(response) {
   }
 }
 
+// Retry utility with exponential backoff for resilient API calls
+async function fetchWithRetry(url, options = {}, maxRetries = 3) {
+  const {
+    initialDelayMs = 1000,
+    maxDelayMs = 10000,
+    backoffMultiplier = 2,
+    timeoutMs = 30000
+  } = options;
+
+  let lastError;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+      
+      const response = await fetch(url, {
+        ...options,
+        signal: controller.signal
+      });
+      
+      clearTimeout(timeoutId);
+      return response;
+    } catch (error) {
+      lastError = error;
+      if (attempt < maxRetries) {
+        // Exponential backoff: don't retry on client errors (4xx) unless it's 429 (rate limit)
+        const isRetryableError = 
+          error.name === 'AbortError' || 
+          error.message?.includes('Failed to fetch') ||
+          error.message?.includes('Network request failed');
+        
+        if (!isRetryableError) throw error;
+        
+        const delayMs = Math.min(
+          initialDelayMs * Math.pow(backoffMultiplier, attempt),
+          maxDelayMs
+        );
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+      }
+    }
+  }
+  throw lastError || new Error('Max retries exceeded');
+}
+
 function parseSseData(rawData) {
   if (typeof rawData !== "string" || !rawData.trim()) return null;
   try {
@@ -2362,6 +2406,12 @@ export default function App() {
     
     try {
       setIsSavingSession(true);
+      
+      // Check localStorage availability first
+      if (!window.localStorage) {
+        throw new Error("localStorage not available (private browsing or disabled)");
+      }
+      
       const payload = {
         ...buildSessionPayload(),
         savedAt: new Date().toISOString()
@@ -2394,6 +2444,15 @@ export default function App() {
         console.warn("⚠️ Could not check localStorage space:", spaceCheckError.message);
       }
 
+      try {
+        localStorage.setItem(storageKey, JSON.stringify([payload, ...JSON.parse(localStorage.getItem(storageKey) || "[]")].slice(0, 20)));
+      } catch (storageError) {
+        if (storageError.name === 'QuotaExceededError') {
+          throw new Error("Storage quota exceeded. Delete old sessions.");
+        }
+        throw storageError;
+      }
+      
       setSavedSessions(prev => [payload, ...prev].slice(0, 20));
       setSelectedSessionIndex("0");
       setSavedState("SESSION SAVED");
@@ -2663,28 +2722,34 @@ export default function App() {
           }
         : {};
 
-      const generateRes = await fetch(`${apiBase}/api/apiframe/generate`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          generator: generatorId,
-          requestId,
-          prompt: promptToSend,
-          payload: {
+      // Use retry logic for initial generate request (resilient to network issues)
+      const generateRes = await fetchWithRetry(
+        `${apiBase}/api/apiframe/generate`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            generator: generatorId,
+            requestId,
             prompt: promptToSend,
-            notation: generatedNotation,
-            effects: { ...effectiveFxControls },
-            ...sourcePayload,
-            metadata: {
-              tempo,
-              timeSignature,
-              emotionPreset,
-              vocalPreset,
-              fxControls: { ...effectiveFxControls }
+            payload: {
+              prompt: promptToSend,
+              notation: generatedNotation,
+              effects: { ...effectiveFxControls },
+              ...sourcePayload,
+              metadata: {
+                tempo,
+                timeSignature,
+                emotionPreset,
+                vocalPreset,
+                fxControls: { ...effectiveFxControls }
+              }
             }
-          }
-        })
-      });
+          }),
+          timeoutMs: 30000
+        },
+        2
+      );
 
       const generateData = await readJsonSafe(generateRes);
       if (!generateRes.ok) {
@@ -2730,8 +2795,11 @@ export default function App() {
           throw new Error(liveState.failureMessage || "Provider callback reported failure.");
         }
 
-        const statusRes = await fetch(
-          `${apiBase}/api/apiframe/status/${encodeURIComponent(jobId)}?generator=${encodeURIComponent(generatorId)}&requestId=${encodeURIComponent(requestId)}`
+        // Use retry logic for status polling (resilient to transient failures)
+        const statusRes = await fetchWithRetry(
+          `${apiBase}/api/apiframe/status/${encodeURIComponent(jobId)}?generator=${encodeURIComponent(generatorId)}&requestId=${encodeURIComponent(requestId)}`,
+          { timeoutMs: 15000 },
+          2
         );
         const statusData = await readJsonSafe(statusRes);
         if (!statusRes.ok) {
@@ -2763,7 +2831,7 @@ export default function App() {
         }
       }
 
-      throw new Error("Generation timed out while polling status.");
+      throw new Error("Generation timed out while polling status. Check network and try again.");
     } catch (error) {
       if (requestStreamRef.current) {
         requestStreamRef.current.close();
@@ -2771,15 +2839,40 @@ export default function App() {
       }
       activeRequestIdRef.current = "";
       setSavedState("GENERATION FAILED");
-      const userMessage =
-        (error && typeof error.uiMessage === "string" && error.uiMessage) ||
-        (error && typeof error.message === "string" && error.message) ||
-        "GENERATION FAILED";
-      setTransportStatus(userMessage.toUpperCase());
+      
+      // Enhanced error messaging for production
+      let userMessage;
+      let detailedError = error?.message || "Unknown error";
+      
+      if (error?.name === 'AbortError') {
+        userMessage = "Request timeout. Network may be slow or backend unreachable.";
+      } else if (detailedError.includes("APIFRAME JOB FAILED")) {
+        userMessage = "Audio generation service failed. Check API keys and try again.";
+      } else if (detailedError.includes("timed out")) {
+        userMessage = "Generation took too long. Provider may be overloaded. Retry soon.";
+      } else if (detailedError.includes("localhost")) {
+        userMessage = "Cannot reach local backend. Ensure backend is running on port 3000.";
+      } else if (detailedError.includes("No audio URL")) {
+        userMessage = "Generation completed but no audio returned. Provider may have failed.";
+      } else if (error?.httpStatus === 401) {
+        userMessage = "Unauthorized (401). Check API keys in environment config.";
+      } else if (error?.httpStatus === 429) {
+        userMessage = "Rate limited (429). Provider service is busy. Wait and retry.";
+      } else if (error?.httpStatus === 500) {
+        userMessage = "Provider server error (500). Try again in a moment.";
+      } else if (error?.httpStatus >= 400) {
+        userMessage = `Request failed (${error.httpStatus}). ${error.uiMessage || 'Check settings and retry.'}`;
+      } else {
+        userMessage = error?.uiMessage || error?.message || "Generation failed. Please try again.";
+      }
+      
+      setTransportStatus(userMessage.toUpperCase().slice(0, 50));
       setTransportNotice({
         tone: (error && error.noticeTone) || "error",
         message: userMessage
       });
+      
+      console.error("🔴 Generation error:", { detailedError, error });
     } finally {
       setIsGenerating(false);
     }
