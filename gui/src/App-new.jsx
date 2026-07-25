@@ -7,6 +7,7 @@ import GyroscopicDial, { AMBER } from "./GyroscopicDial";
 // Load error handling test suite in development
 if (import.meta.env.DEV) {
   import('./errorHandlingTests.js').catch(err => console.warn('Error tests not available:', err.message));
+  import('./performanceProfiling.js').catch(err => console.warn('Performance profiler not available:', err.message));
 }
 import saionLogo from "../images/logos/SAION.png";
 import atlantistImage from "../images/logos/Atlantist.png";
