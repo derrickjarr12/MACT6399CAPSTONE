@@ -240,6 +240,13 @@ app.use(express.json({
   }
 }));
 app.use((req, res, next) => {
+  // Security headers that improve browser best-practices posture without changing app behavior.
+  res.header('X-Content-Type-Options', 'nosniff');
+  res.header('X-Frame-Options', 'DENY');
+  res.header('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.header('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), interest-cohort=()');
+  res.header('Cross-Origin-Opener-Policy', 'same-origin');
+
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
   res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-api-key, x-callback-token, x-elevenlabs-signature, x-elevenlabs-timestamp');
@@ -1972,6 +1979,33 @@ ensureMySqlInit();
 
 // Serve built GUI from gui/dist if present
 const guiDist = path.join(__dirname, '..', 'gui', 'dist');
+
+app.get('/robots.txt', (req, res) => {
+  const robotsPath = path.join(guiDist, 'robots.txt');
+  if (fs.existsSync(robotsPath)) {
+    res.type('text/plain');
+    res.sendFile(robotsPath);
+    return;
+  }
+
+  // Fallback so crawlers never receive SPA HTML for robots.txt.
+  res.type('text/plain');
+  res.send('User-agent: *\nAllow: /\n\nSitemap: https://saionapp-qsqlp.ondigitalocean.app/sitemap.xml\n');
+});
+
+app.get('/sitemap.xml', (req, res) => {
+  const sitemapPath = path.join(guiDist, 'sitemap.xml');
+  if (fs.existsSync(sitemapPath)) {
+    res.type('application/xml');
+    res.sendFile(sitemapPath);
+    return;
+  }
+
+  // Fallback so sitemap path never falls through to the SPA index.html.
+  res.type('application/xml');
+  res.send('<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n  <url>\n    <loc>https://saionapp-qsqlp.ondigitalocean.app/</loc>\n    <changefreq>daily</changefreq>\n    <priority>1.0</priority>\n  </url>\n</urlset>\n');
+});
+
 if (fs.existsSync(guiDist)) {
   app.use(express.static(guiDist));
   // SPA catch-all: serve index.html for any non-API route that doesn't have a file
