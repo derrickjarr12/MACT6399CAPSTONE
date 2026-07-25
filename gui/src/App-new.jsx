@@ -335,12 +335,14 @@ function buildPrompt(settings, context, fxControls, userPrompt = "") {
   const emotionIntent = EMOTION_INTENT_BY_PRESET[context.emotionPreset] || "balanced emotional contour";
   const vocalCadenceIntent = VOCAL_CADENCE_INTENT_BY_PRESET[context.vocalPreset] || "balanced cadence profile";
   const trimmedUserPrompt = typeof userPrompt === "string" ? userPrompt.trim() : "";
+  const trimmedLyrics = typeof context.lyrics === "string" ? context.lyrics.trim() : "";
   const harmonyStyleDescriptor = HARMONY_STYLE_DESCRIPTORS[context.harmonyStyle] || HARMONY_STYLE_DESCRIPTORS["Soft Layered"];
   const detailLevel = context.vocalDetailLevel || "Balanced";
   const profileSummary = buildProfileSummary(settings, context.emotionPreset, context.vocalPreset);
 
   const baseLines = [
     `Generate a ${context.emotionPreset.toLowerCase()} / ${context.vocalPreset.toLowerCase()} performance at ${context.tempo} BPM in ${context.timeSignature}.`,
+    trimmedLyrics ? `Lyrics: ${trimmedLyrics}` : null,
     trimmedUserPrompt ? `User creative notes: ${trimmedUserPrompt}` : null,
     "Preserve lyrical clarity and produce a performance-ready render."
   ];
@@ -917,6 +919,7 @@ const INITIAL_FX_CONTROLS = {
 
 const GENERAL_PROMPT_WORD_LIMIT = 180;
 const PROMPT_FINE_TUNE_WORD_LIMIT = 100;
+const LYRICS_WORD_LIMIT = 300;
 
 const FX_CONTROL_PARAMS = [
   { key: "reverb", label: "Reverb" },
@@ -1106,6 +1109,7 @@ export default function App() {
   }, [transportNotice]);
   const [generalPrompt, setGeneralPrompt] = useState("");
   const [promptFineTune, setPromptFineTune] = useState("");
+  const [lyrics, setLyrics] = useState("");
   const [selectedFineTunePreset, setSelectedFineTunePreset] = useState("none");
   const [hasPerformancePromptSignal, setHasPerformancePromptSignal] = useState(false);
   const [beforeAudio, setBeforeAudio] = useState("");
@@ -1642,8 +1646,8 @@ export default function App() {
 
   useEffect(() => {
     if (!audioElementRef.current) return;
-    // Apply 1.5x volume boost: 50→75%, 75→100%, 100→125% (capped at 1.0)
-    audioElementRef.current.volume = Math.min(1.0, (volume / 100) * 1.5);
+    // Apply 2.5x volume boost for stronger output: 50→125%, 75→187.5%, 100→250% (capped at 1.0)
+    audioElementRef.current.volume = Math.min(1.0, (volume / 100) * 2.5);
   }, [volume]);
 
   useEffect(() => {
@@ -2180,7 +2184,7 @@ export default function App() {
     microTrims: { emotion: emotionMicroTrim, vocal: vocalMicroTrim, fx: fxMicroTrim }
   };
 
-  const generatedPromptRaw = useMemo(() => buildPrompt(effectiveSettings, context, effectiveFxControls, generalPrompt), [effectiveSettings, tempo, timeSignature, emotionPreset, vocalPreset, harmonyStyle, vocalDetailLevel, emotionMicroTrim, vocalMicroTrim, fxMicroTrim, effectiveFxControls, generalPrompt]);
+  const generatedPromptRaw = useMemo(() => buildPrompt(effectiveSettings, { ...context, lyrics }, effectiveFxControls, generalPrompt), [effectiveSettings, tempo, timeSignature, emotionPreset, vocalPreset, harmonyStyle, vocalDetailLevel, emotionMicroTrim, vocalMicroTrim, fxMicroTrim, effectiveFxControls, generalPrompt, lyrics]);
   const generatedPrompt = hasPerformancePromptSignal ? generatedPromptRaw : "";
   const generatedNotation = useMemo(() => buildNotation(effectiveSettings, context, effectiveFxControls), [effectiveSettings, tempo, timeSignature, emotionPreset, vocalPreset, effectiveFxControls]);
   const originalNotation = useMemo(() => buildNotation(originalSettings, context, effectiveFxControls), [originalSettings, tempo, timeSignature, emotionPreset, vocalPreset, effectiveFxControls]);
@@ -2197,6 +2201,7 @@ export default function App() {
     title: sessionTitle || "Untitled Session",
     generalPrompt,
     promptFineTune,
+    lyrics,
     originalPrompt: generalPrompt,
     generatedPrompt,
     notation: notationWithLocalSettings,
@@ -2291,6 +2296,7 @@ export default function App() {
       setSessionTitle(session.title || "Song Idea 1");
       setGeneralPrompt(enforceWordLimit(session.generalPrompt || "", GENERAL_PROMPT_WORD_LIMIT));
       setPromptFineTune(enforceWordLimit(session.promptFineTune || "", PROMPT_FINE_TUNE_WORD_LIMIT));
+      setLyrics(enforceWordLimit(session.lyrics || "", LYRICS_WORD_LIMIT));
       setHasPerformancePromptSignal(true);
       const restoredBeforeAudio = (() => {
         if (session.beforeAudio && session.beforeAudio.startsWith("blob:") && session.beforeAudioDataUrl) {
@@ -2940,6 +2946,17 @@ export default function App() {
                       readOnly
                       placeholder="Performance settings control this prompt foundation."
                     />
+                  </label>
+
+                  <label>
+                    Lyrics
+                    <textarea
+                      value={lyrics}
+                      onChange={(e) => setLyrics(enforceWordLimit(e.target.value, LYRICS_WORD_LIMIT))}
+                      placeholder="Paste your song lyrics here (max 300 words). They will be included in the generation prompt."
+                      rows={5}
+                    />
+                    <small>{lyrics.trim() ? `${lyrics.trim().split(/\s+/).length} / 300 words` : "Optional — add lyrics to guide the vocal performance."}</small>
                   </label>
 
                   <div className="profile-summary">
