@@ -12,6 +12,7 @@ This documentation covers:
 4. Environment setup and deployment
 5. Testing, validation, and operations
 6. Releases and forward roadmap
+7. Public-facing stack overview
 
 ## Read Order (Start to Finish)
 
@@ -23,6 +24,7 @@ This documentation covers:
 6. [06-release-and-roadmap.md](./06-release-and-roadmap.md)
 7. [07-ffmpeg-integration.md](./07-ffmpeg-integration.md)
 8. [08-elevenlabs-ui-instructions.md](./08-elevenlabs-ui-instructions.md)
+9. [09-public-stack-overview.md](./09-public-stack-overview.md)
 
 ## Primary Source Files (Code + Existing Docs)
 
