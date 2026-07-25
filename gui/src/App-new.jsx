@@ -2228,6 +2228,7 @@ export default function App() {
     title: sessionTitle || "Untitled Session",
     generalPrompt,
     promptFineTune,
+    selectedFineTunePreset,
     lyrics,
     originalPrompt: generalPrompt,
     generatedPrompt,
@@ -2323,6 +2324,7 @@ export default function App() {
       setSessionTitle(session.title || "Song Idea 1");
       setGeneralPrompt(enforceWordLimit(session.generalPrompt || "", GENERAL_PROMPT_WORD_LIMIT));
       setPromptFineTune(enforceWordLimit(session.promptFineTune || "", PROMPT_FINE_TUNE_WORD_LIMIT));
+      setSelectedFineTunePreset(session.selectedFineTunePreset || "none");
       setLyrics(enforceWordLimit(session.lyrics || "", LYRICS_WORD_LIMIT));
       setHasPerformancePromptSignal(true);
       const restoredBeforeAudio = (() => {
