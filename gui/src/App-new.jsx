@@ -2336,6 +2336,9 @@ export default function App() {
       vocalPreset,
       vocalDetailLevel,
       harmonyStyle,
+      generator,
+      coreDials,
+      coreSyncEnabled,
       localPreviewOnly,
       activeVersion,
       fxControls: effectiveFxControls,
@@ -2459,6 +2462,9 @@ export default function App() {
       setVocalPreset(session.settings.vocalPreset || "SOULFUL");
       setVocalDetailLevel(session.settings.vocalDetailLevel || "Balanced");
       setHarmonyStyle(session.settings.harmonyStyle || "Soft Layered");
+      if (session.settings.generator) setGenerator(session.settings.generator);
+      if (session.settings.coreDials) setCoreDials(session.settings.coreDials);
+      if (typeof session.settings.coreSyncEnabled === "boolean") setCoreSyncEnabled(session.settings.coreSyncEnabled);
       if (typeof session.settings.localPreviewOnly === "boolean") {
         setLocalPreviewOnly(session.settings.localPreviewOnly);
       }
