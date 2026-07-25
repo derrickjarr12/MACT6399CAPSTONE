@@ -1948,80 +1948,176 @@ export default function App() {
       return 0;
     };
 
+    const buildReverbImpulse = (audioCtx, durationSec = 2.4, decay = 2.2) => {
+      const sampleRate = audioCtx.sampleRate;
+      const length = Math.floor(sampleRate * durationSec);
+      const impulse = audioCtx.createBuffer(2, length, sampleRate);
+      for (let ch = 0; ch < 2; ch++) {
+        const data = impulse.getChannelData(ch);
+        for (let i = 0; i < length; i++) {
+          data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / length, decay);
+        }
+      }
+      return impulse;
+    };
+
     const connectAnalyser = async (audioEl) => {
       try {
         const audioCtx = getAudioContext();
-        if (!audioCtx) {
-          console.warn("No AudioContext available");
-          return;
-        }
-        if (!audioEl) {
-          console.warn("No audio element found");
-          return;
-        }
+        if (!audioCtx) { console.warn("No AudioContext available"); return; }
+        if (!audioEl) { console.warn("No audio element found"); return; }
+        if (audioEl._saionAnalyserConnected) { console.log("FX chain already connected, skipping"); return; }
 
-        // Skip if already connected
-        if (audioEl._saionAnalyserConnected) {
-          console.log("Analyser already connected, skipping");
-          return;
-        }
+        if (audioCtx.state === "suspended") await audioCtx.resume();
 
-        if (audioCtx.state === "suspended") {
-          console.log("Resuming suspended AudioContext");
-          audioCtx.resume();
-        }
-
-        // Create a transparent audio path for local playback:
-        // source -> destination for audible output, plus source -> analyser for visuals.
         let source;
         try {
           source = audioCtx.createMediaElementSource(audioEl);
-          console.log("MediaElementSource created (transparent path)");
         } catch (sourceErr) {
-          console.warn("MediaElementSource already exists or unavailable, using fallback", sourceErr.message);
-          // If a source node cannot be created, skip attaching analyser rather than altering sound.
-          const analyserNode = audioCtx.createAnalyser();
-          analyserNode.fftSize = 256;
-          analyserNode.smoothingTimeConstant = 0.42;
-
-          analyserRef.current = analyserNode;
-          fftRef.current = new Uint8Array(analyserNode.frequencyBinCount);
+          console.warn("MediaElementSource unavailable, analyser-only fallback", sourceErr.message);
+          const fallbackAnalyser = audioCtx.createAnalyser();
+          fallbackAnalyser.fftSize = 256;
+          fallbackAnalyser.smoothingTimeConstant = 0.42;
+          analyserRef.current = fallbackAnalyser;
+          fftRef.current = new Uint8Array(fallbackAnalyser.frequencyBinCount);
           audioEl._saionAnalyserConnected = true;
-          console.log("Fallback analyser setup complete");
           return;
         }
 
+        // ── EQ / tonal nodes ──────────────────────────────────────────
+        const emotionNode = audioCtx.createBiquadFilter();
+        emotionNode.type = "peaking";
+        emotionNode.frequency.value = 800;
+        emotionNode.Q.value = 1.0;
+        emotionNode.gain.value = 0;
+
+        const eqLowNode = audioCtx.createBiquadFilter();
+        eqLowNode.type = "lowshelf";
+        eqLowNode.frequency.value = 250;
+        eqLowNode.gain.value = 0;
+
+        const eqMidNode = audioCtx.createBiquadFilter();
+        eqMidNode.type = "peaking";
+        eqMidNode.frequency.value = 1200;
+        eqMidNode.Q.value = 0.9;
+        eqMidNode.gain.value = 0;
+
+        const eqHighNode = audioCtx.createBiquadFilter();
+        eqHighNode.type = "highshelf";
+        eqHighNode.frequency.value = 5000;
+        eqHighNode.gain.value = 0;
+
+        const warmthNode = audioCtx.createBiquadFilter();
+        warmthNode.type = "lowshelf";
+        warmthNode.frequency.value = 320;
+        warmthNode.gain.value = 0;
+
+        const airNode = audioCtx.createBiquadFilter();
+        airNode.type = "highshelf";
+        airNode.frequency.value = 10000;
+        airNode.gain.value = 0;
+
+        const raspNode = audioCtx.createWaveShaper();
+        raspNode.curve = createRaspCurve(0);
+        raspNode.oversample = "2x";
+
+        // ── Compressor ────────────────────────────────────────────────
+        const compressor = audioCtx.createDynamicsCompressor();
+        compressor.threshold.value = -10;
+        compressor.ratio.value = 1;
+        compressor.attack.value = 0.006;
+        compressor.release.value = 0.1;
+        compressor.knee.value = 6;
+
+        // ── Reverb (convolver + wet/dry) ──────────────────────────────
+        const convolver = audioCtx.createConvolver();
+        convolver.buffer = buildReverbImpulse(audioCtx);
+
+        const reverbWetGain = audioCtx.createGain();
+        reverbWetGain.gain.value = 0;
+
+        const dryGain = audioCtx.createGain();
+        dryGain.gain.value = 1;
+
+        // ── Delay (delay + feedback loop + wet) ───────────────────────
+        const delayNode = audioCtx.createDelay(2.0);
+        delayNode.delayTime.value = 0.02;
+
+        const delayFeedbackGain = audioCtx.createGain();
+        delayFeedbackGain.gain.value = 0;
+
+        const delayWetGain = audioCtx.createGain();
+        delayWetGain.gain.value = 0;
+
+        // ── Send gain (FX bus level) ───────────────────────────────────
+        const sendGain = audioCtx.createGain();
+        sendGain.gain.value = 0.5;
+
+        // ── Analyser ──────────────────────────────────────────────────
         const analyserNode = audioCtx.createAnalyser();
         analyserNode.fftSize = 256;
         analyserNode.smoothingTimeConstant = 0.42;
 
-        source.connect(audioCtx.destination);
-        source.connect(analyserNode);
+        // ── Signal routing ────────────────────────────────────────────
+        // source → tonal chain → compressor → dry + reverb send + delay send
+        source.connect(emotionNode);
+        emotionNode.connect(eqLowNode);
+        eqLowNode.connect(eqMidNode);
+        eqMidNode.connect(eqHighNode);
+        eqHighNode.connect(warmthNode);
+        warmthNode.connect(airNode);
+        airNode.connect(raspNode);
+        raspNode.connect(compressor);
+
+        // dry path
+        compressor.connect(dryGain);
+        dryGain.connect(audioCtx.destination);
+
+        // reverb path
+        compressor.connect(convolver);
+        convolver.connect(reverbWetGain);
+        reverbWetGain.connect(audioCtx.destination);
+
+        // delay path with feedback loop
+        compressor.connect(delayNode);
+        delayNode.connect(delayFeedbackGain);
+        delayFeedbackGain.connect(delayNode);   // feedback loop
+        delayNode.connect(delayWetGain);
+        delayWetGain.connect(audioCtx.destination);
+
+        // analyser taps off the compressor output
+        compressor.connect(sendGain);
+        sendGain.connect(analyserNode);
+
         analyserRef.current = analyserNode;
         fftRef.current = new Uint8Array(analyserNode.frequencyBinCount);
         audioEl._saionAnalyserConnected = true;
 
-        console.log("Transparent analyser path connected");
+        fxNodesRef.current = {
+          emotionNode, eqLowNode, eqMidNode, eqHighNode,
+          warmthNode, airNode, raspNode,
+          compressor, convolver,
+          reverbWetGain, dryGain,
+          delayNode, delayFeedbackGain, delayWetGain,
+          sendGain, analyserNode
+        };
+
+        // Apply current slider values immediately
+        applyFxSettingsToChain(effectiveFxControls, effectiveSettings, activeCoreDials);
+        console.log("Full FX chain connected: EQ → Compressor → Reverb/Delay");
       } catch (err) {
-        console.error("Analyser setup error (audio will still play):", err);
-        
-        // Fallback: create analyser only, no FX chain
+        console.error("FX chain setup error (audio will still play):", err);
         try {
           const audioCtx = getAudioContext();
           if (audioCtx && audioEl) {
-            const analyserNode = audioCtx.createAnalyser();
-            analyserNode.fftSize = 256;
-            analyserNode.smoothingTimeConstant = 0.42;
-            
-            analyserRef.current = analyserNode;
-            fftRef.current = new Uint8Array(analyserNode.frequencyBinCount);
+            const fallbackAnalyser = audioCtx.createAnalyser();
+            fallbackAnalyser.fftSize = 256;
+            fallbackAnalyser.smoothingTimeConstant = 0.42;
+            analyserRef.current = fallbackAnalyser;
+            fftRef.current = new Uint8Array(fallbackAnalyser.frequencyBinCount);
             audioEl._saionAnalyserConnected = true;
-            
-            console.log("Emergency fallback: analyser only");
           }
-        } catch (fallbackErr) {
-          console.error("Even fallback failed:", fallbackErr);
-        }
+        } catch (_) {}
       }
     };
 
