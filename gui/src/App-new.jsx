@@ -2334,6 +2334,8 @@ export default function App() {
       timeSignature,
       emotionPreset,
       vocalPreset,
+      vocalDetailLevel,
+      harmonyStyle,
       localPreviewOnly,
       activeVersion,
       fxControls: effectiveFxControls,
@@ -2455,6 +2457,8 @@ export default function App() {
       setTimeSignature(session.settings.timeSignature || "4/4");
       setEmotionPreset(session.settings.emotionPreset || "LONGING");
       setVocalPreset(session.settings.vocalPreset || "SOULFUL");
+      setVocalDetailLevel(session.settings.vocalDetailLevel || "Balanced");
+      setHarmonyStyle(session.settings.harmonyStyle || "Soft Layered");
       if (typeof session.settings.localPreviewOnly === "boolean") {
         setLocalPreviewOnly(session.settings.localPreviewOnly);
       }
