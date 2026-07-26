@@ -14,6 +14,23 @@
   font-size: 0.7rem;
   font-family: "Syncopate", sans-serif;
   margin-top: 2px;
+.app select {
+  appearance: none;
+  -webkit-appearance: none;
+  border: 1px solid rgba(190, 228, 255, 0.28);
+  background: rgba(4, 14, 24, 0.62);
+  color: #e1ecfd;
+  border-radius: 10px;
+  padding: 0.55rem 0.7rem;
+  font-family: "Space Grotesk", "Segoe UI", sans-serif;
+  font-size: 0.9rem;
+  line-height: 1.2;
+  cursor: pointer;
+}
+.app select:focus {
+  outline: 1px solid rgba(137, 223, 255, 0.7);
+  box-shadow: 0 0 0 2px rgba(137, 223, 255, 0.2);
+}
   letter-spacing: 0.08em;
   text-shadow: 0 0 6px rgba(0,0,0,0.18);
 }
@@ -331,13 +348,15 @@ body::after {
 .meta-input,
 .meta-select {
   width: 58px;
-  border: 1px solid var(--line-soft);
-  background: rgba(4, 17, 27, 0.9);
-  color: var(--cyan-strong);
-  font-family: "Syncopate", sans-serif;
-  font-size: 0.73rem;
+  border: 1px solid rgba(190, 228, 255, 0.28);
+  background: rgba(4, 14, 24, 0.62);
+  color: #e1ecfd;
+  border-radius: 10px;
+  padding: 0.55rem 0.7rem;
+  font-family: "Space Grotesk", "Segoe UI", sans-serif;
+  font-size: 0.9rem;
   text-align: center;
-  padding: 0.12rem 0.2rem;
+  line-height: 1.2;
 }
 
 .meta-select {
@@ -348,6 +367,9 @@ body::after {
   font-size: 0.58rem;
   color: var(--text-soft);
   letter-spacing: 0.08em;
+}
+.meta-select {
+  width: 66px;
 }
 
 .content-area {
@@ -939,13 +961,7 @@ input[type="range"].glass-range::-moz-range-thumb {
 
 .dropdown {
   min-width: 180px;
-  border: 1px solid var(--line);
-  background: linear-gradient(180deg, rgba(6, 25, 42, 0.8), rgba(4, 16, 30, 0.8));
-  color: var(--text);
-  border-radius: 8px;
-  padding: 0.48rem 0.75rem;
-  font-family: "Syncopate", sans-serif;
-  font-size: 0.75rem;
+  min-height: 42px;
 }
 
 .micro-trim-control {

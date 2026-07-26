@@ -642,6 +642,42 @@ function readFileAsDataUrl(file) {
   });
 }
 
+async function measureAudioNormalizationGain(audioContext, source) {
+  if (!audioContext || !source) return 1;
+
+  try {
+    const arrayBuffer = source instanceof Blob
+      ? await source.arrayBuffer()
+      : await (await fetch(source)).arrayBuffer();
+    const decoded = await audioContext.decodeAudioData(arrayBuffer.slice(0));
+
+    let sumSquares = 0;
+    let peak = 0;
+    let sampleCount = 0;
+
+    for (let channel = 0; channel < decoded.numberOfChannels; channel += 1) {
+      const channelData = decoded.getChannelData(channel);
+      for (let index = 0; index < channelData.length; index += 1) {
+        const sample = channelData[index] || 0;
+        const magnitude = Math.abs(sample);
+        if (magnitude > peak) peak = magnitude;
+        sumSquares += sample * sample;
+        sampleCount += 1;
+      }
+    }
+
+    if (!sampleCount) return 1;
+
+    const rms = Math.sqrt(sumSquares / sampleCount);
+    const perceivedLevel = (rms * 0.8) + (peak * 0.2);
+    const targetLevel = 0.14;
+    const rawGain = targetLevel / Math.max(perceivedLevel, 0.035);
+    return Number(Math.max(0.7, Math.min(1.25, rawGain)).toFixed(3));
+  } catch {
+    return 1;
+  }
+}
+
 function isAudioDataUrl(value) {
   return typeof value === "string" && value.startsWith("data:audio/");
 }
@@ -1217,6 +1253,7 @@ export default function App() {
   const audioContextRef = useRef(null);
   const currentTrackIndexRef = useRef(-1);
   const currentTrackUrlRef = useRef("");
+  const trackNormalizationRef = useRef({ before: 1, after: 1 });
   const toneContextSyncedRef = useRef(false);
   const beforeAudioFileInputRef = useRef(null);
   const afterAudioFileInputRef = useRef(null);
@@ -1381,6 +1418,13 @@ export default function App() {
     if (!AudioContextCtor) return null;
     audioContextRef.current = new AudioContextCtor();
     return audioContextRef.current;
+  };
+
+  const getTrackNormalizationGain = (track) => {
+    if (!track) return 1;
+    if (track.url === beforeAudio) return trackNormalizationRef.current.before || 1;
+    if (track.url === afterAudio) return trackNormalizationRef.current.after || 1;
+    return 1;
   };
 
   const disposeFxChain = () => {
@@ -1723,8 +1767,8 @@ export default function App() {
 
   useEffect(() => {
     if (!audioElementRef.current) return;
-    // Apply 2.5x volume boost for stronger output: 50→125%, 75→187.5%, 100→250% (capped at 1.0)
-    audioElementRef.current.volume = Math.min(1.0, (volume / 100) * 2.5);
+    const normalizationGain = Number(audioElementRef.current._saionTrackNormalizationGain || 1);
+    audioElementRef.current.volume = Math.min(1.0, (volume / 100) * 2.5 * normalizationGain);
   }, [volume]);
 
   useEffect(() => {
@@ -1935,12 +1979,15 @@ export default function App() {
     const localUrl = URL.createObjectURL(file);
     const format = detectAudioFormat(file);
     localAudioUrlsRef.current[key] = localUrl;
+    const normalizationGain = await measureAudioNormalizationGain(getAudioContext(), file);
+    trackNormalizationRef.current[key] = normalizationGain;
     audioDebug("upload-selected", {
       target: key,
       name: file.name,
       type: file.type || "unknown",
       sizeBytes: file.size,
-      detectedFormat: format || "unknown"
+      detectedFormat: format || "unknown",
+      normalizationGain
     });
 
     if (key === "before") {
@@ -2190,7 +2237,8 @@ export default function App() {
 
       const sound = new Audio();
       sound.preload = "auto";
-      sound.volume = volume / 100;
+      sound._saionTrackNormalizationGain = getTrackNormalizationGain(track);
+      sound.volume = Math.min(1.0, (volume / 100) * 2.5 * sound._saionTrackNormalizationGain);
       try {
         if ("preservesPitch" in sound) sound.preservesPitch = true;
         if ("webkitPreservesPitch" in sound) sound.webkitPreservesPitch = true;
@@ -2204,6 +2252,7 @@ export default function App() {
         label: track.label,
         format: track.format || "unknown",
         volume: sound.volume,
+        normalizationGain: sound._saionTrackNormalizationGain,
         playbackRate: sound.playbackRate,
         preservesPitch: typeof sound.preservesPitch === "boolean" ? sound.preservesPitch : "unsupported",
         isObjectUrl: track.url.startsWith("blob:"),
