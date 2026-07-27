@@ -1710,6 +1710,10 @@ export default function App() {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) {
         setSavedSessions(parsed);
+        if (parsed.length > 0) {
+          setSelectedSessionIndex("0");
+          setSavedState("SESSIONS RESTORED");
+        }
       }
     } catch (error) {
       setSavedState("SESSION LOAD FAILED");
@@ -2524,10 +2528,16 @@ export default function App() {
     
     try {
       setIsLoadingSession(true);
-      const index = Number(selectedSessionIndex);
+      const requestedIndex = Number(selectedSessionIndex);
+      const fallbackIndex = savedSessions.length > 0 ? 0 : -1;
+      const index = Number.isNaN(requestedIndex) || requestedIndex < 0 ? fallbackIndex : requestedIndex;
       if (Number.isNaN(index) || index < 0 || index >= savedSessions.length) {
         setSavedState("NO SESSION SELECTED");
         return;
+      }
+
+      if (selectedSessionIndex === "-1" && index === 0) {
+        setSelectedSessionIndex("0");
       }
 
       const session = savedSessions[index];
@@ -3360,7 +3370,7 @@ export default function App() {
                 <button onClick={handleSaveSession} disabled={isSavingSession}>
                   {isSavingSession ? "Saving..." : "Save Session"}
                 </button>
-                <button onClick={handleLoadSession} disabled={isLoadingSession || selectedSessionIndex === "-1"}>
+                <button onClick={handleLoadSession} disabled={isLoadingSession || savedSessions.length === 0}>
                   {isLoadingSession ? "Loading..." : "Load Session"}
                 </button>
               </div>
