@@ -8,3 +8,6 @@ createRoot(document.getElementById("root")).render(
     <App />
   </React.StrictMode>
 );
+
+window.__SAION_APP_MOUNTED__ = true;
+window.dispatchEvent(new Event("saion:app-mounted"));
