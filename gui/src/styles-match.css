@@ -347,12 +347,12 @@ body::after {
 
 .meta-input,
 .meta-select {
-  width: 58px;
+  width: 64px;
   border: 1px solid rgba(190, 228, 255, 0.28);
   background: rgba(4, 14, 24, 0.62);
   color: #e1ecfd;
   border-radius: 10px;
-  padding: 0.55rem 0.7rem;
+  padding: 0.45rem 0.45rem;
   font-family: "Space Grotesk", "Segoe UI", sans-serif;
   font-size: 0.9rem;
   text-align: center;
@@ -360,7 +360,11 @@ body::after {
 }
 
 .meta-select {
-  width: 66px;
+  width: 70px;
+}
+
+#tempo-input {
+  min-width: 64px;
 }
 
 .meta-item small {
@@ -2538,11 +2542,11 @@ select,
   }
 
   .meta-input {
-    width: 50px;
+    width: 58px;
   }
 
   .meta-select {
-    width: 56px;
+    width: 62px;
   }
 
 }
