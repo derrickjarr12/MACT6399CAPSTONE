@@ -375,7 +375,7 @@ const SAION_NOTATION_PRESETS = {
 
 const FINE_TUNE_FX_MACROS = {
   none: {
-    fxControls: { ...INITIAL_FX_CONTROLS },
+    fxControls: { reverb: 0, eqLow: 50, eqMid: 50, eqHigh: 50, compression: 0, delay: 0 },
     fxMicroTrim: 0
   },
   sustain: {
