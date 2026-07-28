@@ -2799,7 +2799,7 @@ export default function App() {
             prompt: promptToSend,
             payload: {
               prompt: promptToSend,
-              notation: generatedNotation,
+              notation: notationWithLocalSettings,
               effects: { ...effectiveFxControls },
               ...sourcePayload,
               metadata: {
