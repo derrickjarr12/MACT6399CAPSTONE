@@ -362,7 +362,78 @@ const SAION_NOTATION_PRESETS = {
   legato: { label: "Smooth Legato", notation: "blend notes with smooth transitions, use vocal slides between phrases" },
   melismatic: { label: "Melismatic Runs", notation: "add ornamental runs and embellishments on sustained notes" },
   breathed: { label: "Breathed Phrases", notation: "emphasize breath marks between phrases for intimate delivery" },
-  precise: { label: "Precise Timing", notation: "lock into grid with metronomic precision, reduce swing" }
+  precise: { label: "Precise Timing", notation: "lock into grid with metronomic precision, reduce swing" },
+  vibrato: { label: "Controlled Vibrato", notation: "apply gentle end-of-phrase vibrato on sustained vowels" },
+  staccato: { label: "Staccato Attack", notation: "use short note lengths and crisp cutoffs between words" },
+  adlib: { label: "Tasteful Ad-libs", notation: "add restrained ad-libs in transitions without masking lead lyric clarity" },
+  falsettoLift: { label: "Falsetto Lift", notation: "introduce brief falsetto lift on emotional peak words, then resolve back to chest voice" },
+  harmonyStackFocus: { label: "Harmony Stack Focus", notation: "prioritize tight harmony stacks in key moments while keeping the lead line centered" },
+  whisperLayer: { label: "Whisper Layer", notation: "add a low-level whisper layer under lead phrases for intimacy without reducing lyric clarity" },
+  chorusLift: { label: "Chorus Lift", notation: "increase projection and brightness in choruses with stronger phrase lift and sustained ends" },
+  outroResolve: { label: "Outro Resolve", notation: "ease intensity in the final lines and finish with a soft, resolved cadence" }
+};
+
+const FINE_TUNE_FX_MACROS = {
+  none: {
+    fxControls: { ...INITIAL_FX_CONTROLS },
+    fxMicroTrim: 0
+  },
+  sustain: {
+    fxControls: { reverb: 58, eqLow: 54, eqMid: 48, eqHigh: 60, compression: 28, delay: 12 },
+    fxMicroTrim: 0.6
+  },
+  crisp: {
+    fxControls: { reverb: 18, eqLow: 44, eqMid: 62, eqHigh: 72, compression: 42, delay: 8 },
+    fxMicroTrim: -0.3
+  },
+  legato: {
+    fxControls: { reverb: 46, eqLow: 52, eqMid: 50, eqHigh: 58, compression: 26, delay: 16 },
+    fxMicroTrim: 0.4
+  },
+  melismatic: {
+    fxControls: { reverb: 40, eqLow: 49, eqMid: 54, eqHigh: 64, compression: 34, delay: 26 },
+    fxMicroTrim: 0.5
+  },
+  breathed: {
+    fxControls: { reverb: 52, eqLow: 46, eqMid: 48, eqHigh: 66, compression: 22, delay: 20 },
+    fxMicroTrim: 0.8
+  },
+  precise: {
+    fxControls: { reverb: 16, eqLow: 48, eqMid: 60, eqHigh: 62, compression: 46, delay: 6 },
+    fxMicroTrim: -0.5
+  },
+  vibrato: {
+    fxControls: { reverb: 44, eqLow: 50, eqMid: 52, eqHigh: 61, compression: 30, delay: 18 },
+    fxMicroTrim: 0.3
+  },
+  staccato: {
+    fxControls: { reverb: 14, eqLow: 47, eqMid: 63, eqHigh: 68, compression: 48, delay: 5 },
+    fxMicroTrim: -0.6
+  },
+  adlib: {
+    fxControls: { reverb: 42, eqLow: 50, eqMid: 56, eqHigh: 63, compression: 32, delay: 24 },
+    fxMicroTrim: 0.5
+  },
+  falsettoLift: {
+    fxControls: { reverb: 38, eqLow: 45, eqMid: 54, eqHigh: 74, compression: 33, delay: 17 },
+    fxMicroTrim: 0.4
+  },
+  harmonyStackFocus: {
+    fxControls: { reverb: 47, eqLow: 55, eqMid: 57, eqHigh: 59, compression: 29, delay: 21 },
+    fxMicroTrim: 0.5
+  },
+  whisperLayer: {
+    fxControls: { reverb: 60, eqLow: 43, eqMid: 47, eqHigh: 70, compression: 24, delay: 22 },
+    fxMicroTrim: 0.9
+  },
+  chorusLift: {
+    fxControls: { reverb: 36, eqLow: 53, eqMid: 58, eqHigh: 67, compression: 37, delay: 18 },
+    fxMicroTrim: 0.2
+  },
+  outroResolve: {
+    fxControls: { reverb: 50, eqLow: 51, eqMid: 48, eqHigh: 56, compression: 25, delay: 14 },
+    fxMicroTrim: 0.3
+  }
 };
 
 function buildPrompt(settings, context, fxControls, userPrompt = "") {
@@ -1030,6 +1101,34 @@ const INITIAL_FX_CONTROLS = {
   delay: 0
 };
 
+const INITIAL_CORE_DIALS = {
+  harmony: 0,
+  rhythm: 0,
+  dynamics: 0
+};
+
+const INITIAL_VISUALIZER_CONTROLS = {
+  chaosSensitivity: 67,
+  reformSpeed: 20,
+  flareIntensity: 72,
+  colorSpeed: 14
+};
+
+function createInitialSettings() {
+  return {
+    emotion: { ...INITIAL_SETTINGS.emotion },
+    vocal: { ...INITIAL_SETTINGS.vocal }
+  };
+}
+
+function createInitialFxControls() {
+  return { ...INITIAL_FX_CONTROLS };
+}
+
+function createInitialCoreDials() {
+  return { ...INITIAL_CORE_DIALS };
+}
+
 const GENERAL_PROMPT_WORD_LIMIT = 180;
 const PROMPT_FINE_TUNE_WORD_LIMIT = 100;
 const LYRICS_WORD_LIMIT = 300;
@@ -1195,9 +1294,9 @@ export default function App() {
   const [harmonyStyle, setHarmonyStyle] = useState("Soft Layered");
   const [sessionTitle, setSessionTitle] = useState("Song Idea 1");
   const [navTab, setNavTab] = useState("PERFORMANCE");
-  const [settings, setSettings] = useState(INITIAL_SETTINGS);
-  const [versionA, setVersionA] = useState(INITIAL_SETTINGS);
-  const [versionB, setVersionB] = useState(INITIAL_SETTINGS);
+  const [settings, setSettings] = useState(() => createInitialSettings());
+  const [versionA, setVersionA] = useState(() => createInitialSettings());
+  const [versionB, setVersionB] = useState(() => createInitialSettings());
   const [activeVersion, setActiveVersion] = useState("A");
   const [tempo, setTempo] = useState(120);
   const [timeSignature, setTimeSignature] = useState("4/4");
@@ -1241,14 +1340,10 @@ export default function App() {
   const [isSavingSession, setIsSavingSession] = useState(false);
   const [localPreviewOnly, setLocalPreviewOnly] = useState(false);
   const [activeAudioIndex, setActiveAudioIndex] = useState(0);
-  const [fxControls, setFxControls] = useState(INITIAL_FX_CONTROLS);
+  const [fxControls, setFxControls] = useState(() => createInitialFxControls());
   const [activeEqBand, setActiveEqBand] = useState("eqLow");
   const [coreSyncEnabled, setCoreSyncEnabled] = useState(false);
-  const [coreDials, setCoreDials] = useState({
-    harmony: 0,
-    rhythm: 0,
-    dynamics: 0
-  });
+  const [coreDials, setCoreDials] = useState(() => createInitialCoreDials());
   const audioElementRef = useRef(null);
   const audioContextRef = useRef(null);
   const currentTrackIndexRef = useRef(-1);
@@ -1269,10 +1364,10 @@ export default function App() {
   const [waveformDragOver, setWaveformDragOver] = useState(false);
   const [globeAudio, setGlobeAudio] = useState({ drive: 0.3, bass: 0.3, treble: 0.3, distortion: 0.3, intensity: 0.3 });
   const [insideView, setInsideView] = useState(false);
-  const [chaosSensitivity, setChaosSensitivity] = useState(67);
-  const [reformSpeed, setReformSpeed] = useState(20);
-  const [flareIntensity, setFlareIntensity] = useState(72);
-  const [colorSpeed, setColorSpeed] = useState(14);
+  const [chaosSensitivity, setChaosSensitivity] = useState(INITIAL_VISUALIZER_CONTROLS.chaosSensitivity);
+  const [reformSpeed, setReformSpeed] = useState(INITIAL_VISUALIZER_CONTROLS.reformSpeed);
+  const [flareIntensity, setFlareIntensity] = useState(INITIAL_VISUALIZER_CONTROLS.flareIntensity);
+  const [colorSpeed, setColorSpeed] = useState(INITIAL_VISUALIZER_CONTROLS.colorSpeed);
   const [textureUrl, setTextureUrl] = useState(null);
   const [normalMapUrl, setNormalMapUrl] = useState(null);
   const texturePresets = TEXTURE_PRESETS;
@@ -1964,6 +2059,34 @@ export default function App() {
     afterAudioFileInputRef.current?.click();
   };
 
+  const resetDialsAndSlidersForFreshUpload = () => {
+    const baseSettings = createInitialSettings();
+    setSettings(baseSettings);
+    setVersionA(createInitialSettings());
+    setVersionB(createInitialSettings());
+    setActiveVersion("A");
+
+    setEmotionPreset("LONGING");
+    setVocalPreset("SOULFUL");
+    setEmotionMicroTrim(0);
+    setVocalMicroTrim(0);
+    setFxMicroTrim(0);
+
+    setFxControls(createInitialFxControls());
+    setActiveEqBand("eqLow");
+    setCoreSyncEnabled(false);
+    setCoreDials(createInitialCoreDials());
+
+    setVolume(80);
+    setChaosSensitivity(INITIAL_VISUALIZER_CONTROLS.chaosSensitivity);
+    setReformSpeed(INITIAL_VISUALIZER_CONTROLS.reformSpeed);
+    setFlareIntensity(INITIAL_VISUALIZER_CONTROLS.flareIntensity);
+    setColorSpeed(INITIAL_VISUALIZER_CONTROLS.colorSpeed);
+
+    setHasPerformancePromptSignal(false);
+    setWaveformSeed((prev) => prev + 1);
+  };
+
   const applyLocalAudioFile = async (target, file) => {
     if (!file) return;
 
@@ -1972,6 +2095,8 @@ export default function App() {
       setTransportStatus("UPLOAD FAILED");
       return;
     }
+
+    resetDialsAndSlidersForFreshUpload();
 
     const key = target === "before" ? "before" : "after";
     const previousUrl = localAudioUrlsRef.current[key];
@@ -2639,6 +2764,27 @@ export default function App() {
     setPromptFineTune(enforceWordLimit(value, PROMPT_FINE_TUNE_WORD_LIMIT));
   };
 
+  const handleFineTunePresetSelect = (presetKey) => {
+    setSelectedFineTunePreset(presetKey);
+    const presetNotation = SAION_NOTATION_PRESETS[presetKey]?.notation || "";
+    setPromptFineTune(enforceWordLimit(presetNotation, PROMPT_FINE_TUNE_WORD_LIMIT));
+
+    const fxMacro = FINE_TUNE_FX_MACROS[presetKey];
+    if (!fxMacro) return;
+
+    setFxControls((prev) => ({
+      ...prev,
+      ...Object.fromEntries(
+        Object.entries(fxMacro.fxControls || {}).map(([key, value]) => [key, clampPercent(value)])
+      )
+    }));
+
+    if (typeof fxMacro.fxMicroTrim === "number") {
+      const boundedFxTrim = Math.max(-MICRO_TRIM_LIMITS.fx, Math.min(MICRO_TRIM_LIMITS.fx, fxMacro.fxMicroTrim));
+      setFxMicroTrim(Number(boundedFxTrim.toFixed(1)));
+    }
+  };
+
   const handleGeneralPromptChange = (value) => {
     setGeneralPrompt(enforceWordLimit(value, GENERAL_PROMPT_WORD_LIMIT));
   };
@@ -2706,6 +2852,7 @@ export default function App() {
             : "") || extractAudioUrl(record.lastResponse || record);
 
         if (liveAudio) {
+          resetDialsAndSlidersForFreshUpload();
           setAfterAudio(liveAudio);
           setAfterAudioFormat("");
           setAfterAudioFileName("");
@@ -2828,6 +2975,7 @@ export default function App() {
           requestStreamRef.current = null;
         }
         activeRequestIdRef.current = "";
+        resetDialsAndSlidersForFreshUpload();
         setAfterAudio(immediateAudio);
         setAfterAudioFormat("");
         setAfterAudioFileName("");
@@ -2878,6 +3026,7 @@ export default function App() {
             requestStreamRef.current = null;
           }
           activeRequestIdRef.current = "";
+          resetDialsAndSlidersForFreshUpload();
           setAfterAudio(polledAudio);
           setAfterAudioFormat("");
           setAfterAudioFileName("");
@@ -3099,6 +3248,10 @@ export default function App() {
     1,
     (effectiveSettings.emotion.tension * 0.45 + effectiveSettings.vocal.rasp * 0.35 + effectiveSettings.vocal.texture * 0.2) / 100
   );
+  const waveformUploadTarget = activeVersion === "B" ? "after" : "before";
+  const waveformAudioSource = activeVersion === "B" ? afterAudio : beforeAudio;
+  const waveformAudioFileName = activeVersion === "B" ? afterAudioFileName : beforeAudioFileName;
+  const waveformHasAudio = Boolean(waveformAudioSource);
 
   return (
     <div className="app-redesign">
@@ -3321,7 +3474,7 @@ export default function App() {
                     <div className="fine-tune-preset-selector">
                       <select
                         value={selectedFineTunePreset}
-                        onChange={(e) => setSelectedFineTunePreset(e.target.value)}
+                        onChange={(e) => handleFineTunePresetSelect(e.target.value)}
                       >
                         {Object.entries(SAION_NOTATION_PRESETS).map(([key, { label }]) => (
                           <option key={key} value={key}>
@@ -3914,8 +4067,8 @@ export default function App() {
             </div>
 
             <div
-              className={`waveform-display waveform-dropzone ${waveformDragOver ? "is-drag-over" : ""} ${beforeAudio ? "has-audio" : ""}`}
-              onClick={() => openLocalAudioPicker("before")}
+              className={`waveform-display waveform-dropzone ${waveformDragOver ? "is-drag-over" : ""} ${waveformHasAudio ? "has-audio" : ""}`}
+              onClick={() => openLocalAudioPicker(waveformUploadTarget)}
               onDragOver={(e) => { e.preventDefault(); setWaveformDragOver(true); }}
               onDragLeave={() => setWaveformDragOver(false)}
               onDrop={(e) => {
@@ -3923,16 +4076,16 @@ export default function App() {
                 setWaveformDragOver(false);
                 const file = e.dataTransfer.files?.[0];
                 if (!file) return;
-                void applyLocalAudioFile("before", file);
+                void applyLocalAudioFile(waveformUploadTarget, file);
               }}
               role="button"
               tabIndex={0}
-              aria-label="Drop audio here or click to upload"
-              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") openLocalAudioPicker("before"); }}
+              aria-label={activeVersion === "B" ? "Drop generated audio here or click to upload" : "Drop original audio here or click to upload"}
+              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") openLocalAudioPicker(waveformUploadTarget); }}
             >
               <div className="waveform-label">
-                {beforeAudio
-                  ? (beforeAudioFileName || (activeVersion === "A" ? "ORIGINAL" : "GENERATED"))
+                {waveformHasAudio
+                  ? (waveformAudioFileName || (activeVersion === "A" ? "ORIGINAL" : "GENERATED"))
                   : "Drop audio here or click to upload"}
               </div>
               <svg className="waveform" viewBox="0 0 200 40">
@@ -3947,11 +4100,11 @@ export default function App() {
                   />
                 ))}
               </svg>
-              {beforeAudio && (
+              {waveformHasAudio && (
                 <audio
-                  key={beforeAudio}
+                  key={waveformAudioSource}
                   controls
-                  src={beforeAudio}
+                  src={waveformAudioSource}
                   className="waveform-audio-player"
                   onClick={(e) => e.stopPropagation()}
                 />
