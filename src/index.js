@@ -1705,6 +1705,14 @@ app.get(['/api/provider/health', '/api/apiframe/health'], (req, res) => {
   });
 });
 
+app.get('/health', (_req, res) => {
+  res.status(200).json({
+    ok: true,
+    service: 'pnf-aims-api',
+    timestamp: new Date().toISOString()
+  });
+});
+
 app.get('/api/mysql/health', async (req, res) => {
   const config = getMySqlConfig();
   if (!config) {
@@ -2014,8 +2022,8 @@ if (fs.existsSync(guiDist)) {
   });
 }
 
-app.listen(PORT, () => {
-  console.log(`Server running at http://localhost:${PORT}`);
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`Server running on 0.0.0.0:${PORT}`);
   const ffmpegCfg = getFfmpegFeatureConfig();
   console.log(`FFmpeg feature: ${ffmpegCfg.enabled ? 'enabled' : 'disabled'} (phase 1)`);
 });
