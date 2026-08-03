@@ -1429,7 +1429,9 @@ export default function App() {
     )
   ), [fxControls, fxMicroTrim]);
   const activeEqBandMeta = EQ_BAND_OPTIONS.find((band) => band.key === activeEqBand) || EQ_BAND_OPTIONS[0];
-  const activeEqValue = fxControls[activeEqBandMeta.key] ?? 0;
+  const activeEqValue = clampPercent(
+    fxControls[activeEqBandMeta.key] ?? fxControls.eq ?? INITIAL_FX_CONTROLS[activeEqBandMeta.key] ?? 50
+  );
 
   const audioTracks = useMemo(() => {
     const tracks = [];
@@ -1500,6 +1502,19 @@ export default function App() {
       ...prev,
       [key]: clampPercent(parsed)
     }));
+  };
+
+  const handleEqBandSelect = (bandKey) => {
+    setActiveEqBand(bandKey);
+    setFxControls((prev) => {
+      const legacyEq = clampPercent(prev.eq ?? INITIAL_FX_CONTROLS.eqMid);
+      const nextBandValue = prev[bandKey];
+      if (typeof nextBandValue === "number" && Number.isFinite(nextBandValue)) return prev;
+      return {
+        ...prev,
+        [bandKey]: clampPercent(nextBandValue ?? legacyEq)
+      };
+    });
   };
 
   const handleTexturePresetSelect = (preset) => {
@@ -1695,9 +1710,12 @@ export default function App() {
       (rasp * 0.38 + runs * 0.34 + intensity * 0.28) * performancePolishDrive * 0.3
     );
 
+    // Shape compression so the first half of the slider stays gentle.
+    const compressionShaped = clampUnit(Math.pow(compression, 1.75));
+
     // Keep these FX fully off at slider=0; performance assist only shapes tone once user opts in.
     const compressionBlend = clampUnit(
-      compression * (0.82 + compressionPerformanceAssist * 0.18)
+      compressionShaped * (0.82 + compressionPerformanceAssist * 0.18)
     );
     const reverbBlend = clampUnit(
       reverb * (0.82 + reverbPerformanceAssist * 0.18)
@@ -1741,8 +1759,8 @@ export default function App() {
     if (fxNodes.raspNode) {
       fxNodes.raspNode.curve = createRaspCurve(clampUnit(vocalRaspDrive * 0.9 + appEnhancementDrive * 0.1));
     }
-    setParam(fxNodes.compressor.threshold, -56 + compressionBlendUpdated * 46, 0.025);
-    setParam(fxNodes.compressor.ratio, 1 + compressionBlendUpdated * 19, 0.025);
+    setParam(fxNodes.compressor.threshold, -60 + compressionBlendUpdated * 34, 0.025);
+    setParam(fxNodes.compressor.ratio, 1 + compressionBlendUpdated * 11, 0.025);
     setParam(fxNodes.compressor.attack, 0.006 + (1 - rhythmTiming) * 0.05, 0.025);
     setParam(fxNodes.compressor.release, 0.05 + (1 - rhythmTiming) * 0.6, 0.025);
 
@@ -3753,7 +3771,7 @@ export default function App() {
                             key={band.key}
                             type="button"
                             className={`controls-eq-band-btn ${activeEqBand === band.key ? "is-active" : ""}`}
-                            onClick={() => setActiveEqBand(band.key)}
+                            onClick={() => handleEqBandSelect(band.key)}
                             aria-pressed={activeEqBand === band.key}
                           >
                             {band.label}
