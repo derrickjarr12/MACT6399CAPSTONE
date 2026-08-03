@@ -14,7 +14,7 @@ module.exports = {
         PORT: 3000
       },
       max_memory_restart: '300M',
-      autorestart: true,
+      autorestart: false,
       watch: false
     }
   ]

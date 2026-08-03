@@ -23,7 +23,7 @@ services:
     volumes:
       # Optional: mount logs directory for persistence
       - ./logs:/app/logs
-    restart: unless-stopped
+    restart: "no"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
       interval: 30s
