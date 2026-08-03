@@ -1432,6 +1432,7 @@ export default function App() {
   const activeEqValue = clampPercent(
     fxControls[activeEqBandMeta.key] ?? fxControls.eq ?? INITIAL_FX_CONTROLS[activeEqBandMeta.key] ?? 50
   );
+  const fineTunePresetLoudnessCompEnabled = navTab === "GENERATE" && selectedFineTunePreset !== "none";
 
   const audioTracks = useMemo(() => {
     const tracks = [];
@@ -1605,7 +1606,13 @@ export default function App() {
   const stageLeftTexturePresets = visiblePresets.slice(0, 4);
   const stageRightTexturePresets = visiblePresets.slice(4, 8);
 
-  const applyFxSettingsToChain = (nextFxControls, nextSettings = currentSettings, coreDials = activeCoreDials) => {
+  const applyFxSettingsToChain = (
+    nextFxControls,
+    nextSettings = currentSettings,
+    coreDials = activeCoreDials,
+    options = {}
+  ) => {
+    const preserveLoudness = Boolean(options.preserveLoudness);
     const fxNodes = fxNodesRef.current;
     if (!fxNodes) return;
 
@@ -1745,6 +1752,14 @@ export default function App() {
       compressionBlend * (0.84 + dynamicsRange * 0.16)
     );
 
+    // Keep fine-tune and macro-driven mood changes from sounding like a volume drop.
+    const loudnessCompensation = clampUnit(
+      compressionBlendUpdated * 0.34 +
+      reverbBlendUpdated * 0.2 +
+      delayBlendUpdated * 0.1
+    );
+    const makeupGainTarget = preserveLoudness ? 1 + loudnessCompensation * 0.42 : 1;
+
     const fxSendTarget = clampUnit(0.08 + harmony * 0.18 + rhythm * 0.22 + (1 - dynamics) * 0.18 + delayBlendUpdated * 0.14 + reverbBlendUpdated * 0.1);
 
     setParam(fxNodes.sendGain?.gain, fxSendTarget, 0.02);
@@ -1763,9 +1778,10 @@ export default function App() {
     setParam(fxNodes.compressor.ratio, 1 + compressionBlendUpdated * 11, 0.025);
     setParam(fxNodes.compressor.attack, 0.006 + (1 - rhythmTiming) * 0.05, 0.025);
     setParam(fxNodes.compressor.release, 0.05 + (1 - rhythmTiming) * 0.6, 0.025);
+    setParam(fxNodes.makeupGain?.gain, makeupGainTarget, 0.03);
 
     setParam(fxNodes.reverbWetGain.gain, reverbBlendUpdated, 0.02);
-    setParam(fxNodes.dryGain.gain, 1 - reverbBlendUpdated * 0.72, 0.02);
+    setParam(fxNodes.dryGain.gain, 1 - reverbBlendUpdated * (preserveLoudness ? 0.45 : 0.72), 0.02);
 
     setParam(fxNodes.delayNode.delayTime, 0.02 + (delayBlendUpdated * 0.55 + (1 - rhythm) * 0.45) * 0.78, 0.02);
     setParam(fxNodes.delayFeedbackGain.gain, (delayBlendUpdated * 0.6 + (1 - rhythm) * 0.4) * 0.86, 0.02);
@@ -1889,8 +1905,10 @@ export default function App() {
   }, [volume]);
 
   useEffect(() => {
-    applyFxSettingsToChain(effectiveFxControls, effectiveSettings, activeCoreDials);
-  }, [effectiveFxControls, effectiveSettings, activeCoreDials]);
+    applyFxSettingsToChain(effectiveFxControls, effectiveSettings, activeCoreDials, {
+      preserveLoudness: fineTunePresetLoudnessCompEnabled
+    });
+  }, [effectiveFxControls, effectiveSettings, activeCoreDials, fineTunePresetLoudnessCompEnabled]);
 
   // Drive the holographic globe from live audio FFT data while playing
   useEffect(() => {
@@ -2273,6 +2291,9 @@ export default function App() {
         compressor.release.value = 0.1;
         compressor.knee.value = 6;
 
+        const makeupGain = audioCtx.createGain();
+        makeupGain.gain.value = 1;
+
         // ── Reverb (convolver + wet/dry) ──────────────────────────────
         const convolver = audioCtx.createConvolver();
         convolver.buffer = buildReverbImpulse(audioCtx);
@@ -2303,7 +2324,7 @@ export default function App() {
         analyserNode.smoothingTimeConstant = 0.42;
 
         // ── Signal routing ────────────────────────────────────────────
-        // source → tonal chain → compressor → dry + reverb send + delay send
+        // source → tonal chain → compressor → makeup gain → dry + reverb send + delay send
         source.connect(emotionNode);
         emotionNode.connect(eqLowNode);
         eqLowNode.connect(eqMidNode);
@@ -2312,25 +2333,26 @@ export default function App() {
         warmthNode.connect(airNode);
         airNode.connect(raspNode);
         raspNode.connect(compressor);
+        compressor.connect(makeupGain);
 
         // dry path
-        compressor.connect(dryGain);
+        makeupGain.connect(dryGain);
         dryGain.connect(audioCtx.destination);
 
         // reverb path
-        compressor.connect(convolver);
+        makeupGain.connect(convolver);
         convolver.connect(reverbWetGain);
         reverbWetGain.connect(audioCtx.destination);
 
         // delay path with feedback loop
-        compressor.connect(delayNode);
+        makeupGain.connect(delayNode);
         delayNode.connect(delayFeedbackGain);
         delayFeedbackGain.connect(delayNode);   // feedback loop
         delayNode.connect(delayWetGain);
         delayWetGain.connect(audioCtx.destination);
 
         // analyser taps off the compressor output
-        compressor.connect(sendGain);
+        makeupGain.connect(sendGain);
         sendGain.connect(analyserNode);
 
         analyserRef.current = analyserNode;
@@ -2340,14 +2362,16 @@ export default function App() {
         fxNodesRef.current = {
           emotionNode, eqLowNode, eqMidNode, eqHighNode,
           warmthNode, airNode, raspNode,
-          compressor, convolver,
+          compressor, makeupGain, convolver,
           reverbWetGain, dryGain,
           delayNode, delayFeedbackGain, delayWetGain,
           sendGain, analyserNode
         };
 
         // Apply current slider values immediately
-        applyFxSettingsToChain(effectiveFxControls, effectiveSettings, activeCoreDials);
+        applyFxSettingsToChain(effectiveFxControls, effectiveSettings, activeCoreDials, {
+          preserveLoudness: fineTunePresetLoudnessCompEnabled
+        });
         console.log("Full FX chain connected: EQ → Compressor → Reverb/Delay");
       } catch (err) {
         console.error("FX chain setup error (audio will still play):", err);
