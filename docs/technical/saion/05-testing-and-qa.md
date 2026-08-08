@@ -9,6 +9,7 @@ Primary planning docs:
 - ../../../README.md
 - ../../saion-next-steps/NEXT_STEPS_README.md
 - ../../saion-next-steps/FOUR_WEEK_EXECUTION_CHECKLIST.md
+- ../../PREFLIGHT_TEST_GUIDE.md
 
 ## Baseline Compatibility Test
 
@@ -32,6 +33,8 @@ Run:
 Command:
 
 - npm run preflight
+- npm run preflight:startup
+- npm run preflight:live -- <app-url>
 
 Sequence:
 
@@ -40,6 +43,10 @@ Sequence:
 3. startup env validation
 
 This is the fastest confidence check before merge/deploy/demo rehearsal.
+
+Reference:
+
+- ../../PREFLIGHT_TEST_GUIDE.md
 
 ## Provider Proof Runs
 

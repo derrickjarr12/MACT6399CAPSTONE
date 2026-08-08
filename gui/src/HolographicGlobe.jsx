@@ -53,7 +53,8 @@ function HolographicGlobe({
   const insideAmountRef = useRef(0);
 
   // Texture management refs
-  const textureLoaderRef = useRef(new THREE.TextureLoader());
+  // crossOrigin required for CDN-hosted textures loaded into WebGL
+  const textureLoaderRef = useRef(Object.assign(new THREE.TextureLoader(), { crossOrigin: "anonymous" }));
   const activeTextureRef = useRef(null);
   const activeNormalMapRef = useRef(null);
   const globeMeshRef = useRef(null);

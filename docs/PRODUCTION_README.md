@@ -11,9 +11,10 @@ PNF-AIMS (Performance-driven Notation Framework - AI for Musical Synthesis) is a
 3. [Frontend Deployment](#frontend-deployment)
 4. [Backend Deployment](#backend-deployment)
 5. [Docker Deployment](#docker-deployment)
-6. [Error Handling & Monitoring](#error-handling--monitoring)
-7. [Security Considerations](#security-considerations)
-8. [Troubleshooting](#troubleshooting)
+6. [Preflight Verification](#preflight-verification)
+7. [Error Handling & Monitoring](#error-handling--monitoring)
+8. [Security Considerations](#security-considerations)
+9. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -248,6 +249,27 @@ services:
 ```bash
 docker-compose up -d
 ```
+
+---
+
+## Preflight Verification
+
+Run these checks before and after deployment:
+
+```bash
+# Local quality gate
+npm run preflight
+
+# Local startup + health readiness gate
+npm run preflight:startup
+
+# Live deployment smoke check
+npm run preflight:live -- https://your-app.example.com
+```
+
+Detailed reference:
+
+- `./PREFLIGHT_TEST_GUIDE.md`
 
 ---
 

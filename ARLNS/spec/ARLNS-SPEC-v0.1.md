@@ -4,7 +4,7 @@
 
 This file preserves the early experimental ARLNS baseline.
 
-It is intentionally kept as a historical reference, not the authoritative day-to-day instruction set. The current authoring guide lives in [README](../README).
+It is intentionally kept as a historical reference, not the authoritative day-to-day instruction set. The current authoring guide lives in [README](../README.md).
 
 ## Purpose
 
