@@ -26,6 +26,50 @@ const {
 } = require("./provider_contract_v1");
 const { loadEnv, getConfig } = require("./config/env-loader");
 const { validateStartup } = require("./config/validate-startup");
+
+// SAI chat clients — initialized lazily so missing keys don't crash startup
+let _anthropic = null;
+let _openai = null;
+function getAnthropicClient() {
+  if (!_anthropic && process.env.CLAUDE_API_KEY && !process.env.CLAUDE_API_KEY.startsWith('your_')) {
+    const Anthropic = require('@anthropic-ai/sdk');
+    _anthropic = new Anthropic({ apiKey: process.env.CLAUDE_API_KEY });
+  }
+  return _anthropic;
+}
+function getOpenAIClient() {
+  if (!_openai && process.env.OPENAI_API_KEY && !process.env.OPENAI_API_KEY.startsWith('your_')) {
+    const OpenAI = require('openai');
+    _openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  }
+  return _openai;
+}
+
+const SAI_SYSTEM_PROMPT = `You are SAI, a vocal coach and vocal teacher built into SAION — a vocal performance design tool.
+
+Your primary role is to help users grow as vocalists and performers. You are warm, encouraging, and supportive in everything you say. You meet users where they are — beginner or advanced — and always make them feel capable and understood.
+
+As a vocal coach you:
+- Refine performance: guide users on style, phrasing, emotional delivery, and storytelling for a specific song or role
+- Prepare for events: help users get ready for auditions, concerts, and recording sessions with practical strategies
+- Address stage nerves: coach on stage presence, body language, breath control, and overcoming performance anxiety
+- Collaborate like an accompanist: help users lock in timing, dynamics, and feel — the way a pianist supports a singer in a rehearsal room
+- Teach music theory: answer questions about scales, keys, intervals, chord progressions, rhythm, harmony, and how they apply to singing
+- Answer general musical questions with depth and patience
+
+You also know SAION deeply and can help users connect their vocal coaching goals to the app:
+- ARLNS vocal notation: delivery tokens (^^soft^^, {b} breath, ~> elongate, >> compress), texture tags (T:raspy, T:airy, T:warm), rests (R:q, R:h, R:w), section metadata (BPM, KEY, INST)
+- Performance dials: Emotion preset, Vocal preset, micro-trim sliders, Version A/B comparison
+- FX controls: Reverb (0=dry → 100=washed), EQ Low/Mid/High (50=neutral), Compression, Delay
+- Generate tab: prompt builder, ARLNS annotation output, generators (ElevenLabs, Suno, Mureka)
+- Visualize tab: Holographic Orb, chaos sensitivity, reform speed, flare intensity, color speed, texture presets
+- General workflow: session saving, export summary, BPM/time signature, transport controls
+
+Tone guidelines:
+- Always be supportive, patient, and encouraging — never critical or dismissive
+- Keep answers practical and actionable
+- If a topic is outside vocal coaching or SAION, gently redirect to something useful
+- You do not generate audio, adjust dials, or take any autonomous action — you guide, the user decides`;
 const {
   getFfmpegFeatureConfig,
   probeFfmpegBinary,
@@ -1882,6 +1926,54 @@ app.post('/api/media/ffmpeg/visualize', async (req, res) => {
 });
 
 // Asset texture presets endpoint - serves CDN URLs with local fallback
+app.post('/api/sai', async (req, res) => {
+  const { message, history = [] } = req.body || {};
+  if (!message || typeof message !== 'string' || message.trim().length === 0) {
+    return res.status(400).json({ error: 'message is required' });
+  }
+  if (message.length > 2000) {
+    return res.status(400).json({ error: 'message too long' });
+  }
+
+  const messages = [
+    ...history.slice(-10).map((m) => ({ role: m.role, content: m.content })),
+    { role: 'user', content: message.trim() }
+  ];
+
+  // Try Claude first
+  const anthropic = getAnthropicClient();
+  if (anthropic) {
+    try {
+      const result = await anthropic.messages.create({
+        model: 'claude-opus-4-5',
+        max_tokens: 512,
+        system: SAI_SYSTEM_PROMPT,
+        messages
+      });
+      return res.json({ reply: result.content[0].text, provider: 'claude' });
+    } catch (err) {
+      console.warn('[SAI] Claude failed, trying OpenAI fallback:', err.message);
+    }
+  }
+
+  // OpenAI fallback
+  const openai = getOpenAIClient();
+  if (openai) {
+    try {
+      const result = await openai.chat.completions.create({
+        model: 'gpt-4o-mini',
+        max_tokens: 512,
+        messages: [{ role: 'system', content: SAI_SYSTEM_PROMPT }, ...messages]
+      });
+      return res.json({ reply: result.choices[0].message.content, provider: 'openai' });
+    } catch (err) {
+      console.warn('[SAI] OpenAI fallback also failed:', err.message);
+    }
+  }
+
+  res.status(503).json({ error: 'SAI is unavailable — no API keys configured.' });
+});
+
 app.get('/api/assets/texture-presets', (req, res) => {
   const CDN_BASE = 'https://saion-assets.nyc3.cdn.digitaloceanspaces.com/saion-folder/';
   const LOCAL_BASE = '/images/logos/';

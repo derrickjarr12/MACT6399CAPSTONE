@@ -3,38 +3,41 @@ import React, { useEffect, useMemo, useRef, useState, Suspense, lazy } from "rea
 import * as Tone from "tone";
 import ThreeGearDial from "./ThreeGearDial";
 import GyroscopicDial, { AMBER } from "./GyroscopicDial";
+import SAIPanel from "./SAIPanel";
 
 // Load error handling test suite in development
 if (import.meta.env.DEV) {
   import('./errorHandlingTests.js').catch(err => console.warn('Error tests not available:', err.message));
   import('./performanceProfiling.js').catch(err => console.warn('Performance profiler not available:', err.message));
 }
-import saionLogo from "../images/logos/SAION.png";
-import atlantistImage from "../images/logos/Atlantist.png";
-import bubbleLipsImage from "../images/logos/Bubble_LIps.png";
-import buttonsImage from "../images/logos/buttons.png";
-import redKissImage from "../images/logos/Red_Kiss.png";
-import shotGlassImage from "../images/logos/Shot_Glass.png";
-import shotsImage from "../images/logos/Shots.jpeg";
-import zeroOneImage from "../images/logos/0_1.jpeg";
-import saionYellowImage from "../images/logos/SAION_LogoYellow.png";
-import createImage from "../images/logos/Create.jpeg";
-import textFaceImage from "../images/logos/TextFace.jpeg";
-import stainGlassImage from "../images/logos/StainGlassGeometry.jpeg";
-import theRhythmImage from "../images/logos/TheRhythm.jpeg";
-import saionThumbImage from "../images/logos/thumbs/SAION.png";
-import atlantistThumbImage from "../images/logos/thumbs/Atlantist.png";
-import bubbleLipsThumbImage from "../images/logos/thumbs/Bubble_LIps.png";
-import buttonsThumbImage from "../images/logos/thumbs/buttons.png";
-import redKissThumbImage from "../images/logos/thumbs/Red_Kiss.png";
-import shotGlassThumbImage from "../images/logos/thumbs/Shot_Glass.png";
-import shotsThumbImage from "../images/logos/thumbs/Shots.jpeg";
-import zeroOneThumbImage from "../images/logos/thumbs/0_1.jpeg";
-import saionYellowThumbImage from "../images/logos/thumbs/SAION_LogoYellow.png";
-import createThumbImage from "../images/logos/thumbs/Create.jpeg";
-import textFaceThumbImage from "../images/logos/thumbs/TextFace.jpeg";
-import stainGlassThumbImage from "../images/logos/thumbs/StainGlassGeometry.jpeg";
-import theRhythmThumbImage from "../images/logos/thumbs/TheRhythm.jpeg";
+// CDN-hosted — browser fetches on demand, nothing bundled at build time
+const CDN1 = "https://saion-assets.nyc3.cdn.digitaloceanspaces.com/saion-folder";
+const CDN2 = "https://saion-assets.nyc3.cdn.digitaloceanspaces.com/saion-folder%202";
+const saionLogo           = `${CDN1}/SAION.png`;
+const atlantistImage      = `${CDN1}/Atlantist.png`;
+const bubbleLipsImage     = `${CDN1}/Bubble_LIps.png`;
+const buttonsImage        = `${CDN1}/buttons.png`;
+const redKissImage        = `${CDN1}/Red_Kiss.png`;
+const shotGlassImage      = `${CDN1}/Shot_Glass.png`;
+const shotsImage          = `${CDN1}/Shots.jpeg`;
+const saionYellowImage    = `${CDN1}/SAION_Logo.png`;
+const createImage         = "https://saion-assets.nyc3.cdn.digitaloceanspaces.com/Create.jpeg";
+const textFaceImage       = `${CDN2}/TextFace.jpeg`;
+const stainGlassImage     = `${CDN2}/StainGlassGeometry.jpeg`;
+const theRhythmImage      = `${CDN2}/TheRhythm.jpeg`;
+// thumbs not in Spaces — rail uses full-res URLs; browser caches them after first globe load
+const saionThumbImage        = `${CDN1}/SAION.png`;
+const atlantistThumbImage    = `${CDN1}/Atlantist.png`;
+const bubbleLipsThumbImage   = `${CDN1}/Bubble_LIps.png`;
+const buttonsThumbImage      = `${CDN1}/buttons.png`;
+const redKissThumbImage      = `${CDN1}/Red_Kiss.png`;
+const shotGlassThumbImage    = `${CDN1}/Shot_Glass.png`;
+const shotsThumbImage        = `${CDN1}/Shots.jpeg`;
+const saionYellowThumbImage  = `${CDN1}/SAION_Logo.png`;
+const createThumbImage       = "https://saion-assets.nyc3.cdn.digitaloceanspaces.com/Create.jpeg";
+const textFaceThumbImage     = `${CDN2}/TextFace.jpeg`;
+const stainGlassThumbImage   = `${CDN2}/StainGlassGeometry.jpeg`;
+const theRhythmThumbImage    = `${CDN2}/TheRhythm.jpeg`;
 const HolographicGlobe = lazy(() => import("./HolographicGlobe"));
 
 function CornerDial({ value, onChange, color, label, style }) {
@@ -1232,13 +1235,6 @@ const TEXTURE_PRESETS = [
     normalMapUrl: null
   },
   {
-    id: "zero-one",
-    label: "Zero One",
-    thumbnailUrl: zeroOneThumbImage,
-    textureUrl: zeroOneImage,
-    normalMapUrl: null
-  },
-  {
     id: "saion-yellow",
     label: "Saion Yellow",
     thumbnailUrl: saionYellowThumbImage,
@@ -1294,6 +1290,7 @@ export default function App() {
   const [harmonyStyle, setHarmonyStyle] = useState("Soft Layered");
   const [sessionTitle, setSessionTitle] = useState("Song Idea 1");
   const [navTab, setNavTab] = useState("PERFORMANCE");
+  const [saiOpen, setSaiOpen] = useState(false);
   const [settings, setSettings] = useState(() => createInitialSettings());
   const [versionA, setVersionA] = useState(() => createInitialSettings());
   const [versionB, setVersionB] = useState(() => createInitialSettings());
@@ -3318,8 +3315,8 @@ export default function App() {
         <button
           type="button"
           className="nav-brand nav-brand-link"
-          onClick={() => setNavTab("PERFORMANCE")}
-          aria-label="Go to homepage"
+          onClick={() => setSaiOpen((v) => !v)}
+          aria-label="Open SAI vocal coach"
         >
           <img className="nav-brand-logo" src={saionLogo} alt="SAION" />
         </button>
@@ -4248,6 +4245,8 @@ export default function App() {
           )}
         </div>
       </footer>
+
+      <SAIPanel open={saiOpen} onClose={() => setSaiOpen(false)} activeTab={navTab} />
     </div>
   );
 }
