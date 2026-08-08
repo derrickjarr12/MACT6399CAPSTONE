@@ -3314,6 +3314,7 @@ html {
   right: 24px;
   z-index: 9000;
   font-family: var(--font-ui);
+  pointer-events: none;
 }
 
 .sai-window {
