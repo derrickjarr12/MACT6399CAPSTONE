@@ -1322,6 +1322,7 @@ export default function App() {
   const [navTab, setNavTab] = useState("PERFORMANCE");
   const [saiOpen, setSaiOpen] = useState(false);
   const [activeMood, setActiveMood] = useState(null);
+  const [sceneAutoCycle, setSceneAutoCycle] = useState(false);
   const [settings, setSettings] = useState(() => createInitialSettings());
   const [versionA, setVersionA] = useState(() => createInitialSettings());
   const [versionB, setVersionB] = useState(() => createInitialSettings());
@@ -1549,12 +1550,15 @@ export default function App() {
   const handleTexturePresetSelect = (preset) => {
     setTextureUrl(preset.textureUrl || null);
     setNormalMapUrl(preset.normalMapUrl || null);
+    // User took manual control — pause scene auto-cycle
+    if (activeMood) setSceneAutoCycle(false);
   };
 
   const applyMoodScene = (scene) => {
     // Toggle off if already active
-    if (activeMood === scene.id) { setActiveMood(null); return; }
+    if (activeMood === scene.id) { setActiveMood(null); setSceneAutoCycle(false); return; }
     setActiveMood(scene.id);
+    setSceneAutoCycle(true);
     setChaosSensitivity(scene.orb.chaosSensitivity);
     setReformSpeed(scene.orb.reformSpeed);
     setFlareIntensity(scene.orb.flareIntensity);
@@ -1567,9 +1571,9 @@ export default function App() {
 
   const resetMood = () => setActiveMood(null);
 
-  // Auto-cycle scene textures every 5-7 seconds while a mood is active
+  // Auto-cycle scene textures every 3 seconds — pauses when user manually picks a texture
   useEffect(() => {
-    if (!activeMood) return;
+    if (!activeMood || !sceneAutoCycle) return;
     const scene = MOOD_SCENES.find((s) => s.id === activeMood);
     if (!scene || scene.textureIds.length < 2) return;
     let idx = 0;
@@ -1578,14 +1582,13 @@ export default function App() {
       const preset = TEXTURE_PRESETS.find((p) => p.id === scene.textureIds[idx]);
       if (preset) { setTextureUrl(preset.textureUrl || null); setNormalMapUrl(preset.normalMapUrl || null); }
     };
-    // Randomize interval between 5000-7000ms so it feels alive, not mechanical
     const scheduleNext = () => {
       const delay = 3000;
       return setTimeout(() => { next(); timerRef.current = scheduleNext(); }, delay);
     };
     const timerRef = { current: scheduleNext() };
     return () => clearTimeout(timerRef.current);
-  }, [activeMood]);
+  }, [activeMood, sceneAutoCycle]);
 
   const getAudioContext = () => {
     if (audioContextRef.current) return audioContextRef.current;
