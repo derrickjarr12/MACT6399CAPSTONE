@@ -3192,14 +3192,23 @@ html {
   max-height: 580px;
   display: flex;
   flex-direction: column;
-  background: var(--bg-1);
-  border: 1px solid var(--line);
+  background: rgba(6, 18, 32, 0.82);
+  backdrop-filter: blur(24px) saturate(1.4);
+  -webkit-backdrop-filter: blur(24px) saturate(1.4);
+  border: 1px solid rgba(79, 220, 255, 0.22);
+  border-top: 1px solid rgba(79, 220, 255, 0.4);
   border-radius: 16px;
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(79, 220, 255, 0.08);
+  box-shadow:
+    0 2px 4px rgba(0, 0, 0, 0.5),
+    0 8px 16px rgba(0, 0, 0, 0.55),
+    0 24px 48px rgba(0, 0, 0, 0.55),
+    0 48px 80px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(79, 220, 255, 0.18),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.4);
   opacity: 0;
-  transform: translateY(16px) scale(0.97);
+  transform: translateY(20px) scale(0.96);
   pointer-events: none;
-  transition: opacity 0.25s ease, transform 0.25s cubic-bezier(0.34, 1.36, 0.64, 1);
+  transition: opacity 0.28s ease, transform 0.28s cubic-bezier(0.34, 1.36, 0.64, 1);
   overflow: hidden;
 }
 
@@ -3215,10 +3224,14 @@ html {
   align-items: center;
   justify-content: space-between;
   padding: 14px 16px;
-  background: linear-gradient(135deg, rgba(79, 220, 255, 0.12), rgba(109, 243, 248, 0.06));
-  border-bottom: 1px solid var(--line-soft);
+  background: linear-gradient(135deg, rgba(79, 220, 255, 0.14), rgba(109, 243, 248, 0.06));
+  border-bottom: 1px solid rgba(79, 220, 255, 0.15);
   flex-shrink: 0;
+  cursor: grab;
+  user-select: none;
 }
+
+.sai-header:active { cursor: grabbing; }
 
 .sai-header-identity {
   display: flex;
@@ -3524,7 +3537,7 @@ html {
   flex-shrink: 0;
 }
 
-/* Mobile: full-width, anchored bottom */
+/* Mobile: full-width sheet, stays draggable above fold */
 @media (max-width: 480px) {
   .sai-widget {
     bottom: 0;
@@ -3534,7 +3547,18 @@ html {
 
   .sai-window {
     width: 100%;
-    max-height: 70dvh;
-    border-radius: 16px 16px 0 0;
+    max-height: 72dvh;
+    border-radius: 20px 20px 0 0;
+    border-left: none;
+    border-right: none;
+    border-bottom: none;
+  }
+
+  .sai-header {
+    /* visual drag-hint on mobile */
+    padding-top: 18px;
+    background-image:
+      linear-gradient(135deg, rgba(79, 220, 255, 0.14), rgba(109, 243, 248, 0.06)),
+      radial-gradient(ellipse 40px 3px at 50% 8px, rgba(79,220,255,0.35) 0%, transparent 100%);
   }
 }

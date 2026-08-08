@@ -35,6 +35,10 @@ export default function SAIPanel({ open, onClose, activeTab }) {
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const [tipIndex, setTipIndex] = useState(0);
+  // null = default bottom-right anchor; {x, y} = dragged position from top-left
+  const [dragPos, setDragPos] = useState(null);
+  const dragState = useRef(null);
+  const widgetRef = useRef(null);
   const bottomRef = useRef(null);
   const inputRef = useRef(null);
 
@@ -93,15 +97,54 @@ export default function SAIPanel({ open, onClose, activeTab }) {
     }
   }
 
+  // ── Drag-to-reposition (mouse + touch) ───────────────────────────────────
+  function startDrag(clientX, clientY) {
+    const rect = widgetRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    dragState.current = { startX: clientX, startY: clientY, origX: rect.left, origY: rect.top };
+  }
+
+  useEffect(() => {
+    const onMove = (clientX, clientY) => {
+      if (!dragState.current) return;
+      const { startX, startY, origX, origY } = dragState.current;
+      const x = Math.max(0, Math.min(window.innerWidth - 370, origX + (clientX - startX)));
+      const y = Math.max(0, Math.min(window.innerHeight - 80, origY + (clientY - startY)));
+      setDragPos({ x, y });
+    };
+    const onMouseMove = (e) => onMove(e.clientX, e.clientY);
+    const onTouchMove = (e) => onMove(e.touches[0].clientX, e.touches[0].clientY);
+    const onUp = () => { dragState.current = null; };
+
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onUp);
+    window.addEventListener("touchmove", onTouchMove, { passive: true });
+    window.addEventListener("touchend", onUp);
+    return () => {
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onUp);
+      window.removeEventListener("touchmove", onTouchMove);
+      window.removeEventListener("touchend", onUp);
+    };
+  }, []); // setDragPos is stable, dragState is a ref — safe
+
   const currentTip = getTip(activeTab, tipIndex);
 
+  // Build inline position style only when user has dragged
+  const posStyle = dragPos
+    ? { position: "fixed", left: dragPos.x, top: dragPos.y, bottom: "auto", right: "auto" }
+    : {};
+
   return (
-    <div className="sai-widget">
-      {/* Chat window — shown when open */}
+    <div className="sai-widget" ref={widgetRef} style={posStyle}>
       <div className={`sai-window ${open ? "is-open" : ""}`} role="dialog" aria-label="SAI vocal coach">
 
-        {/* Header */}
-        <div className="sai-header">
+        {/* Header — drag handle */}
+        <div
+          className="sai-header"
+          onMouseDown={(e) => { e.preventDefault(); startDrag(e.clientX, e.clientY); }}
+          onTouchStart={(e) => startDrag(e.touches[0].clientX, e.touches[0].clientY)}
+        >
           <div className="sai-header-identity">
             <span className="sai-avatar">S</span>
             <div>
@@ -150,9 +193,9 @@ export default function SAIPanel({ open, onClose, activeTab }) {
           <div ref={bottomRef} />
         </div>
 
-        {/* ARLNS quick ref */}
+        {/* SAION quick ref */}
         <details className="sai-ref">
-          <summary>ARLNS Quick Reference</summary>
+          <summary>SAION Quick Reference</summary>
           <ul>
             <li><code>{"^^...^^"}</code> soft span</li>
             <li><code>{"{b}"}</code> quick breath &nbsp; <code>{"{B}"}</code> phrase reset</li>
