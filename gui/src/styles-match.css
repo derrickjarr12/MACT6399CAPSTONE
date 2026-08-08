@@ -3178,6 +3178,135 @@ html {
   }
 }
 
+/* ─── Mood Scene System ──────────────────────────────────────────────────────── */
+
+/* FOCUS — cold blue, focused, minimal */
+[data-mood="focus"] {
+  --cyan: #7bc8ff;
+  --cyan-strong: #4db8ff;
+  --teal: #a8e4ff;
+  --pink: #7bc8ff;
+  --line: rgba(123, 200, 255, 0.55);
+  --line-soft: rgba(123, 200, 255, 0.25);
+  --bg-0: #010810;
+  --bg-1: #020f1e;
+  --bg-2: #051a30;
+  --panel: rgba(2, 15, 30, 0.75);
+}
+
+/* CREATIVE — full magenta, expressive, electric */
+[data-mood="creative"] {
+  --cyan: #ff73d6;
+  --cyan-strong: #ff30c0;
+  --teal: #ffaaec;
+  --pink: #ff73d6;
+  --line: rgba(255, 115, 214, 0.6);
+  --line-soft: rgba(255, 115, 214, 0.28);
+  --bg-0: #100510;
+  --bg-1: #1a071a;
+  --bg-2: #280d28;
+  --panel: rgba(20, 5, 20, 0.78);
+}
+
+/* LIVE DEMO — amber gold, commanding, stage */
+[data-mood="live-demo"] {
+  --cyan: #ffe066;
+  --cyan-strong: #ffc800;
+  --teal: #fff099;
+  --pink: #ffe066;
+  --line: rgba(255, 224, 102, 0.6);
+  --line-soft: rgba(255, 224, 102, 0.28);
+  --bg-0: #0f0a00;
+  --bg-1: #1a1000;
+  --bg-2: #281900;
+  --panel: rgba(20, 12, 0, 0.78);
+}
+
+/* Orb module shell — hard glow ring per mood */
+[data-mood="focus"] .orb-module-shell {
+  box-shadow: 0 0 0 1px rgba(123, 200, 255, 0.35), 0 0 60px rgba(123, 200, 255, 0.15), 0 8px 32px rgba(0,0,0,0.6);
+}
+
+[data-mood="creative"] .orb-module-shell {
+  box-shadow: 0 0 0 1px rgba(255, 115, 214, 0.45), 0 0 80px rgba(255, 115, 214, 0.2), 0 8px 32px rgba(0,0,0,0.6);
+}
+
+[data-mood="live-demo"] .orb-module-shell {
+  box-shadow: 0 0 0 1px rgba(255, 224, 102, 0.45), 0 0 80px rgba(255, 224, 102, 0.18), 0 8px 32px rgba(0,0,0,0.6);
+}
+
+/* Scene thumbnails in rail — glow ring when they belong to active scene */
+.orb-stage-thumb-btn.is-scene-texture {
+  box-shadow: 0 0 0 2px var(--cyan), 0 0 14px rgba(79, 220, 255, 0.5);
+  border-radius: 6px;
+}
+
+.orb-stage-thumb-btn.is-scene-texture.is-active {
+  box-shadow: 0 0 0 2px var(--cyan-strong), 0 0 24px var(--cyan);
+}
+
+/* Scene selector strip */
+.mood-scene-strip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--line-soft);
+  flex-wrap: wrap;
+}
+
+.mood-scene-label {
+  font-family: var(--font-display);
+  font-size: 0.6rem;
+  letter-spacing: 0.18em;
+  color: var(--text-soft);
+  flex-shrink: 0;
+  margin-right: 2px;
+}
+
+.mood-scene-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 18px;
+  border-radius: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-soft);
+  font-family: var(--font-display);
+  font-size: 0.68rem;
+  letter-spacing: 0.12em;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s, color 0.2s, box-shadow 0.2s, transform 0.15s;
+}
+
+.mood-scene-card:hover {
+  background: rgba(255, 255, 255, 0.09);
+  color: var(--text);
+  border-color: var(--mood-color, var(--line));
+  transform: scale(1.03);
+}
+
+.mood-scene-card.is-active {
+  background: rgba(79, 220, 255, 0.12);
+  border-color: var(--mood-color, var(--cyan));
+  color: var(--mood-color, var(--cyan));
+  box-shadow:
+    0 0 0 1px var(--mood-color, var(--cyan)),
+    0 0 20px rgba(79, 220, 255, 0.3),
+    0 0 40px rgba(79, 220, 255, 0.12);
+  transform: scale(1.05);
+}
+
+.mood-scene-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--mood-color, var(--cyan));
+  flex-shrink: 0;
+  box-shadow: 0 0 8px var(--mood-color, var(--cyan));
+}
+
 /* ─── SAI Corner Chat Widget ────────────────────────────────────────────────── */
 .sai-widget {
   position: fixed;

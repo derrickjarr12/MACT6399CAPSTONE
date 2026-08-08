@@ -1279,6 +1279,36 @@ const GENERATOR_VALUE_MAP = {
   elevenlabs: "elevenlabs"
 };
 
+const MOOD_SCENES = [
+  {
+    id: "focus",
+    name: "FOCUS",
+    description: "Clean, minimal, concentrated",
+    accentColor: "#a8d8ff",
+    orb: { chaosSensitivity: 20, reformSpeed: 80, flareIntensity: 15, colorSpeed: 15 },
+    fx: { reverb: 12, delay: 5 },
+    textureIds: ["saion", "stain-glass", "text-face"],
+  },
+  {
+    id: "creative",
+    name: "CREATIVE",
+    description: "Expressive, vibrant, free",
+    accentColor: "#ff73d6",
+    orb: { chaosSensitivity: 72, reformSpeed: 42, flareIntensity: 78, colorSpeed: 68 },
+    fx: { reverb: 55, delay: 22 },
+    textureIds: ["atlantist", "the-rhythm", "create"],
+  },
+  {
+    id: "live-demo",
+    name: "LIVE DEMO",
+    description: "Bold, stage-ready, commanding",
+    accentColor: "#ffe066",
+    orb: { chaosSensitivity: 50, reformSpeed: 55, flareIntensity: 65, colorSpeed: 45 },
+    fx: { reverb: 35, delay: 15 },
+    textureIds: ["shots", "red-kiss", "bubble-lips"],
+  },
+];
+
 function normalizeGeneratorValue(value) {
   const normalized = String(value || "").trim().toLowerCase();
   return GENERATOR_VALUE_MAP[normalized] || "mureka";
@@ -1291,6 +1321,7 @@ export default function App() {
   const [sessionTitle, setSessionTitle] = useState("Song Idea 1");
   const [navTab, setNavTab] = useState("PERFORMANCE");
   const [saiOpen, setSaiOpen] = useState(false);
+  const [activeMood, setActiveMood] = useState(null);
   const [settings, setSettings] = useState(() => createInitialSettings());
   const [versionA, setVersionA] = useState(() => createInitialSettings());
   const [versionB, setVersionB] = useState(() => createInitialSettings());
@@ -1391,7 +1422,7 @@ export default function App() {
     return indices.slice(0, Math.min(VISIBLE_PRESETS, presetArray.length));
   };
 
-  // Initialize and auto-rotate carousel with random selection every 5 seconds
+  // Initialize and auto-rotate carousel — always live, mood does not pause it
   useEffect(() => {
     setVisibleIndices(generateRandomPresets(texturePresets));
     
@@ -1519,6 +1550,42 @@ export default function App() {
     setTextureUrl(preset.textureUrl || null);
     setNormalMapUrl(preset.normalMapUrl || null);
   };
+
+  const applyMoodScene = (scene) => {
+    // Toggle off if already active
+    if (activeMood === scene.id) { setActiveMood(null); return; }
+    setActiveMood(scene.id);
+    setChaosSensitivity(scene.orb.chaosSensitivity);
+    setReformSpeed(scene.orb.reformSpeed);
+    setFlareIntensity(scene.orb.flareIntensity);
+    setColorSpeed(scene.orb.colorSpeed);
+    setFxControls((prev) => ({ ...prev, reverb: scene.fx.reverb, delay: scene.fx.delay }));
+    // Apply first scene texture immediately — carousel keeps rotating freely
+    const first = TEXTURE_PRESETS.find((p) => p.id === scene.textureIds[0]);
+    if (first) { setTextureUrl(first.textureUrl || null); setNormalMapUrl(first.normalMapUrl || null); }
+  };
+
+  const resetMood = () => setActiveMood(null);
+
+  // Auto-cycle scene textures every 5-7 seconds while a mood is active
+  useEffect(() => {
+    if (!activeMood) return;
+    const scene = MOOD_SCENES.find((s) => s.id === activeMood);
+    if (!scene || scene.textureIds.length < 2) return;
+    let idx = 0;
+    const next = () => {
+      idx = (idx + 1) % scene.textureIds.length;
+      const preset = TEXTURE_PRESETS.find((p) => p.id === scene.textureIds[idx]);
+      if (preset) { setTextureUrl(preset.textureUrl || null); setNormalMapUrl(preset.normalMapUrl || null); }
+    };
+    // Randomize interval between 5000-7000ms so it feels alive, not mechanical
+    const scheduleNext = () => {
+      const delay = 3000;
+      return setTimeout(() => { next(); timerRef.current = scheduleNext(); }, delay);
+    };
+    const timerRef = { current: scheduleNext() };
+    return () => clearTimeout(timerRef.current);
+  }, [activeMood]);
 
   const getAudioContext = () => {
     if (audioContextRef.current) return audioContextRef.current;
@@ -3293,7 +3360,7 @@ export default function App() {
   const waveformHasAudio = Boolean(waveformAudioSource);
 
   return (
-    <div className="app-redesign">
+    <div className="app-redesign" data-mood={activeMood || undefined}>
       {/* Hidden file inputs — always mounted so refs work from any tab */}
       <input
         ref={beforeAudioFileInputRef}
@@ -3592,17 +3659,38 @@ export default function App() {
                   <button className="orb-module-back-btn" onClick={() => setNavTab("PERFORMANCE")}>BACK TO PERFORMANCE</button>
                 </div>
               </div>
+
+              {/* Mood Scene selector */}
+              <div className="mood-scene-strip">
+                <span className="mood-scene-label">SCENE</span>
+                {MOOD_SCENES.map((scene) => (
+                  <button
+                    key={scene.id}
+                    type="button"
+                    className={`mood-scene-card ${activeMood === scene.id ? "is-active" : ""}`}
+                    onClick={() => applyMoodScene(scene)}
+                    style={{ "--mood-color": scene.accentColor }}
+                    title={scene.description}
+                  >
+                    <span className="mood-scene-swatch" />
+                    <span className="mood-scene-name">{scene.name}</span>
+                  </button>
+                ))}
+              </div>
+
+              {/* Curated scene textures highlight in the rails — no extra strip needed */}
               <div className="orb-module-stage">
                 <div className="orb-stage-layout">
                   <div className="orb-stage-rail orb-stage-rail-left" role="list" aria-label="Left globe texture presets">
                     {stageLeftTexturePresets.map((preset) => {
                       const isActive = textureUrl === preset.textureUrl && (normalMapUrl || null) === (preset.normalMapUrl || null);
+                      const isScene = (MOOD_SCENES.find(s => s.id === activeMood)?.textureIds || []).includes(preset.id);
                       return (
                         <button
                           key={`stage-left-${preset.id}`}
                           type="button"
                           role="listitem"
-                          className={`orb-stage-thumb-btn ${isActive ? "is-active" : ""}`}
+                          className={`orb-stage-thumb-btn ${isActive ? "is-active" : ""} ${isScene ? "is-scene-texture" : ""}`}
                           onClick={() => handleTexturePresetSelect(preset)}
                           title={preset.label}
                           aria-label={`Apply ${preset.label} texture`}
@@ -3642,12 +3730,13 @@ export default function App() {
                   <div className="orb-stage-rail orb-stage-rail-right" role="list" aria-label="Right globe texture presets">
                     {stageRightTexturePresets.map((preset) => {
                       const isActive = textureUrl === preset.textureUrl && (normalMapUrl || null) === (preset.normalMapUrl || null);
+                      const isScene = (MOOD_SCENES.find(s => s.id === activeMood)?.textureIds || []).includes(preset.id);
                       return (
                         <button
                           key={`stage-right-${preset.id}`}
                           type="button"
                           role="listitem"
-                          className={`orb-stage-thumb-btn ${isActive ? "is-active" : ""}`}
+                          className={`orb-stage-thumb-btn ${isActive ? "is-active" : ""} ${isScene ? "is-scene-texture" : ""}`}
                           onClick={() => handleTexturePresetSelect(preset)}
                           title={preset.label}
                           aria-label={`Apply ${preset.label} texture`}
